@@ -93,3 +93,4 @@ The planner sees three tools: `plug_search`, `plug_describe`, and
 | P5 | The planner sends a tool name or an input shape that is not known (`args` as a string, extra keys). | Refuse with `bad-input`. | `tests/planner.test.ts` |
 | P6 | `plug_describe` gets an id that does not exist. | Refuse with `unknown-action`. | `tests/planner.test.ts` |
 | P7 | The schema that `plug_describe` gives for a grammar allows extra keys. | Every schema has `additionalProperties: false`. | `tests/planner.test.ts` |
+| P8 | An input key is a name on `Object.prototype` (`constructor`, `toString`). | Refuse with `bad-input` as an unknown input. foxplug looks up tool inputs with `Object.hasOwn`. | `tests/planner.test.ts` |
