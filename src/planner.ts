@@ -69,7 +69,8 @@ export function createPlanner(options: PlannerOptions) {
     if (!tool || typeof input !== "object" || input === null || Array.isArray(input)) return refused("bad-input", `unknown tool ${name}`);
     const i = input as Record<string, unknown>;
     const props = tool.parameters.properties as Record<string, { type: string }>;
-    for (const key of Object.keys(i)) if (!props[key]) return refused("bad-input", `${name} has no input ${key}`);
+    // Own keys only, so constructor and toString are unknown inputs too (P8).
+    for (const key of Object.keys(i)) if (!Object.hasOwn(props, key)) return refused("bad-input", `${name} has no input ${key}`);
     for (const key of tool.parameters.required) if (i[key] === undefined) return refused("bad-input", `${name} needs ${key}`);
     for (const [key, value] of Object.entries(i)) {
       const want = props[key]!.type;
