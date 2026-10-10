@@ -102,8 +102,9 @@ ships them, so a mistake in one reaches every user.
 
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
-| G1 | A gold manifest does not pass the strict validator, or uses a loopback host. | Importing the catalog throws. `parseManifest` runs with no `loopback` option. | `tests/catalog.test.ts` |
+| G1 | A gold manifest does not pass the strict validator, or uses a loopback host. | Importing the catalog throws. `parseGold` runs with no `loopback` option. | `tests/catalog.test.ts` |
 | G2 | Code changes a gold manifest at run time. | The manifests are frozen, so the change throws. | `tests/catalog.test.ts` |
-| G3 | A gold action that changes data has scope `read`, so it can run with no approval. | Every non-GET action is `submit`, except a short list of POST reads. A GraphQL read starts with `query`, never `mutation`. | `tests/catalog.test.ts` |
+| G3 | A gold action that changes data has scope `read`, so it can run with no approval. | Every non-GET action is `submit`, except the POST reads in `POST_READS` (`src/catalog.ts`). A GraphQL read starts with `query`, never `mutation`. | `tests/catalog.test.ts` |
 | G4 | A gold manifest needs a shared OAuth client ID. | Every gold manifest uses a key or token that the user pastes (`apikey` or `pat`). | `tests/catalog.test.ts` |
 | G5 | A gold manifest builds the wrong request: wrong path, method, or auth header form. | With its host moved to the fixture server, one action of each manifest sends the expected method, path, and `Authorization` value. | `tests/catalog.test.ts` (fixture server) |
+| G6 | A custom manifest copies a gold POST read, but changes its body to a write. | `parseManifest` refuses it with `bad-scope` (M13). Only `parseGold` takes the `POST_READS` allowlist, and the package does not export either one. | `tests/catalog.test.ts` |
