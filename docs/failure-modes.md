@@ -64,3 +64,18 @@ and the API server are both untrusted.
 | R11 | The vault is locked. | Refuse with `locked`. Nothing is sent. | `tests/runner.test.ts` |
 | R12 | An `oauth-pkce` integration has no foxlink link. | Refuse with `not-connected`. With a link, only `link.fetch` sends the request. | `tests/runner.test.ts` |
 | R13 | Two manifests have the same id. | `createRunner` throws `bad-manifest`. | `tests/runner.test.ts` |
+
+## Planner tools
+
+The planner sees three tools: `plug_search`, `plug_describe`, and
+`plug_call`. It never sees the action list itself. Its input is untrusted.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| P1 | The planner calls an action of an integration that the user has not connected. | Refuse with `not-connected`. Nothing is sent. | `tests/planner.test.ts` |
+| P2 | The planner makes more calls in one turn than `maxCallsPerTurn` (default 8). | Refuse with `turn-limit` until `newTurn()`. | `tests/planner.test.ts` |
+| P3 | A search matches an integration that is not connected. | Return no action from it. Return only its name in `notConnected`, so the planner can offer to connect it. | `tests/planner.test.ts` |
+| P4 | A query is empty, has no known word, or is very long. | Return an empty list, or search the first 500 characters. Never return more than `limit` (at most 10) results. | `tests/planner.test.ts` |
+| P5 | The planner sends a tool name or an input shape that is not known (`args` as a string, extra keys). | Refuse with `bad-input`. | `tests/planner.test.ts` |
+| P6 | `plug_describe` gets an id that does not exist. | Refuse with `unknown-action`. | `tests/planner.test.ts` |
+| P7 | The schema that `plug_describe` gives for a grammar allows extra keys. | Every schema has `additionalProperties: false`. | `tests/planner.test.ts` |
