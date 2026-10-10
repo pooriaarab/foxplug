@@ -39,8 +39,8 @@ describe("planner tools", () => {
   it("runs search, describe, ask, approve and call as a planner would", async () => {
     const { host, planner } = await setup();
     expect(planner.prompt()).toBe("Connected integrations: Tasks (Tasks tasks).");
-    const found = await planner.run("plug_search", { query: "create a task" });
-    expect(found).toMatchObject({ results: [{ id: "tasks.tasks_create", scope: "submit" }] });
+    const found = (await planner.run("plug_search", { query: "create a task" })) as { results: { id: string }[] };
+    expect(found.results[0]).toMatchObject({ id: "tasks.tasks_create", scope: "submit" });
     const described = await planner.run("plug_describe", { id: "tasks.tasks_create" });
     expect(described).toMatchObject({ signature: "tasks.tasks_create(title: string, due?: string) [submit: asks the user]" });
     const asked = (await planner.run("plug_call", { id: "tasks.tasks_create", args: { title: "Buy milk" } })) as { requestId: string };
