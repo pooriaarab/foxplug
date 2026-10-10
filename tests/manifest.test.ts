@@ -59,8 +59,8 @@ describe("parseManifest", () => {
     expect(codeOf((m) => (act(m).path = "/items/{other}"))).toBe("bad-template");
     expect(codeOf((m) => (act(m).args.required = []))).toBe("bad-template");
     expect(codeOf((m) => (act(m).query = { q: "{nope}" }))).toBe("bad-template");
-    expect(codeOf((m) => (act(m).body = { q: "{nope}" }, act(m).method = "POST"))).toBe("bad-template");
-    expect(codeOf((m) => (act(m).body = { q: "x {item}" }, act(m).method = "POST"))).toBe("bad-template");
+    expect(codeOf((m) => (act(m).body = { q: "{nope}" }, act(m).method = "POST", act(m).scope = "submit"))).toBe("bad-template");
+    expect(codeOf((m) => (act(m).body = { q: "x {item}" }, act(m).method = "POST", act(m).scope = "submit"))).toBe("bad-template");
     expect(codeOf((m) => (act(m).query = { q: "x{item}" }))).toBe("bad-template");
   });
 

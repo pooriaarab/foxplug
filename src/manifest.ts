@@ -1,6 +1,7 @@
 import { fail } from "./errors.js";
 
-export type Scope = "read" | "fill" | "submit" | "pay";
+/** `fill` is a foxgate scope for forms. A manifest cannot use it. */
+export type Scope = "read" | "submit" | "pay";
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type ArgType = "string" | "integer" | "number" | "boolean" | "object" | "array";
 
@@ -61,7 +62,7 @@ export const LOOPBACK = /^(?:127\.0\.0\.1|localhost):\d{1,5}$/;
 const SEGMENT = /^[A-Za-z0-9._~:-]+$/;
 const HEADER = /^[A-Za-z0-9-]{1,60}$/;
 const PROJECT = /^[A-Za-z0-9_]+(?:\[\])?(?:\.[A-Za-z0-9_]+(?:\[\])?)*$/;
-const SCOPES = ["read", "fill", "submit", "pay"];
+const SCOPES = ["read", "submit", "pay"];
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const TYPES = ["string", "integer", "number", "boolean", "object", "array"];
 const BANNED_HEADERS = ["authorization", "proxy-authorization", "cookie", "host"];
@@ -134,14 +135,17 @@ function bodyArgs(value: unknown, at: string, depth = 0, out: string[] = []): st
   return out;
 }
 
-function checkAction(value: unknown, at: string, m: { hosts: string[]; authHeader?: string }, options: ParseOptions) {
+type Context = { id: string; hosts: string[]; authHeader?: string; postReads: readonly string[] };
+function checkAction(value: unknown, at: string, m: Context, options: ParseOptions) {
   const a = fields(value, at, ["id", "summary", "scope", "method", "path", "args"],
     ["host", "query", "headers", "body", "project", "render", "rate"]);
   if (typeof a.id !== "string" || !ID.test(a.id)) fail("bad-manifest", `${at}.id must match ${ID}`);
   str(a.summary, `${at}.summary`);
   if (!SCOPES.includes(a.scope as string)) fail("bad-scope", `${at}.scope must be one of ${SCOPES.join(", ")}`);
   if (!METHODS.includes(a.method as string)) fail("bad-manifest", `${at}.method is not known`);
-  if (a.scope === "read" && !["GET", "POST"].includes(a.method as string)) fail("bad-scope", `${at}: ${a.method} cannot be read`);
+  // A read runs with no approval, so it must not change data (M13). A POST read needs the gold allowlist.
+  const postRead = a.method === "POST" && m.postReads.includes(`${m.id}.${a.id}`);
+  if (a.scope === "read" && a.method !== "GET" && !postRead) fail("bad-scope", `${at}: ${a.method} cannot be read`);
   if (a.host !== undefined && !m.hosts.includes(checkHost(a.host, `${at}.host`, options))) fail("bad-host", `${at}.host is not in hosts`);
   const args = checkArgsSchema(a.args, `${at}.args`);
   const declared = (name: string, where: string) => {
@@ -216,6 +220,18 @@ function freeze<T>(value: T): T {
 
 /** Check a manifest and return a frozen copy. Throws PlugError for anything the format does not allow. */
 export function parseManifest(input: unknown, options: ParseOptions = {}): Manifest {
+  return check(input, options, []);
+}
+
+/**
+ * For the gold catalog only, and not exported from the package. `postReads` lists the
+ * `<manifest>.<action>` ids that may be a POST read, such as a GraphQL query or a search.
+ */
+export function parseGold(input: unknown, postReads: readonly string[]): Manifest {
+  return check(input, {}, postReads);
+}
+
+function check(input: unknown, options: ParseOptions, postReads: readonly string[]): Manifest {
   const m = fields(input, "manifest", ["id", "name", "summary", "tier", "hosts", "auth", "actions"]);
   if (typeof m.id !== "string" || !ID.test(m.id)) fail("bad-manifest", `manifest.id must match ${ID}`);
   str(m.name, "manifest.name", 60);
@@ -226,7 +242,7 @@ export function parseManifest(input: unknown, options: ParseOptions = {}): Manif
   const auth = checkAuth(m.auth);
   const authHeader = "header" in auth ? auth.header.toLowerCase() : undefined;
   const actions = list(m.actions, "manifest.actions", 50);
-  actions.forEach((a, i) => checkAction(a, `actions[${i}]`, { hosts, authHeader }, options));
+  actions.forEach((a, i) => checkAction(a, `actions[${i}]`, { id: m.id as string, hosts, authHeader, postReads }, options));
   const ids = actions.map((a) => (a as Obj).id);
   if (new Set(ids).size !== ids.length) fail("bad-manifest", "manifest.actions has a duplicate id");
   return freeze(structuredClone(m) as unknown as Manifest);
