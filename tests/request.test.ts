@@ -74,6 +74,26 @@ describe("buildRequest", () => {
     expect(seen.headers["content-type"]).toBe("application/json");
   });
 
+  it("A7 refuses a string with a lone surrogate", () => {
+    for (const owner of ["\uD800", "a\uDC00b"]) expect(code(() => buildRequest(m, "get", { owner }))).toBe("bad-args");
+    expect(code(() => buildRequest(m, "get", { owner: "me", q: "\uD83D" }))).toBe("bad-args");
+    expect(code(() => buildRequest(m, "get", { owner: "\uD83D\uDE00" }))).toBe("built");
+  });
+
+  it("A8 never reads an argument from Object.prototype", () => {
+    const action = (id: string, extra: object) => ({ id, summary: id, scope: "read", method: "GET", path: "/x", ...extra });
+    const p = parseManifest({
+      id: "proto", name: "Proto", summary: "Proto", tier: "gold", hosts: [api.host], auth: { type: "none" },
+      actions: [
+        action("path", { path: "/x/{constructor}", args: { type: "object", required: ["constructor"], properties: { constructor: { type: "string" } } } }),
+        action("query", { query: { v: "{constructor}" }, args: { type: "object", properties: { constructor: { type: "string" } } } }),
+      ],
+    }, { loopback: true });
+    expect(code(() => buildRequest(p, "path", {}))).toBe("bad-args");
+    expect(buildRequest(p, "path", { constructor: "c" }).url).toBe(`http://${api.host}/x/c`);
+    expect(buildRequest(p, "query", {}).url).toBe(`http://${api.host}/x`);
+  });
+
   it("A6 throws host-mismatch for a URL that leaves the host", () => {
     const bad = structuredClone(m) as { actions: { path: string }[] };
     bad.actions[0]!.path = "@evil.com/{owner}";
