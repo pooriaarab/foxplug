@@ -1,7 +1,7 @@
 /** Why foxplug refused. Callers can switch on `code`. Messages never hold a secret. */
 export type PlugErrorCode =
   | "bad-manifest" | "unknown-key" | "bad-host" | "bad-path" | "bad-template" | "bad-auth"
-  | "bad-scope" | "bad-header";
+  | "bad-scope" | "bad-header" | "bad-args" | "unknown-action" | "host-mismatch";
 
 export class PlugError extends Error {
   readonly code: PlugErrorCode;
