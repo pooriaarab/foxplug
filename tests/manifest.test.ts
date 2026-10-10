@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseManifest, PlugError } from "../src/index.js";
+import { parseGold } from "../src/manifest.js";
 
 const base = () => ({
   id: "demo",
@@ -83,6 +84,20 @@ describe("parseManifest", () => {
     expect(codeOf((m) => delete act(m).scope)).toBe("bad-manifest");
     expect(codeOf((m) => (act(m).scope = "admin"))).toBe("bad-scope");
     expect(codeOf((m) => (act(m).method = "DELETE"))).toBe("bad-scope");
+  });
+
+  it("M13 refuses fill, and read on POST", () => {
+    expect(codeOf((m) => (act(m).scope = "fill"))).toBe("bad-scope");
+    expect(codeOf((m) => ((act(m).scope = "fill"), (act(m).method = "POST")))).toBe("bad-scope");
+    expect(codeOf((m) => (act(m).method = "POST"))).toBe("bad-scope");
+  });
+
+  it("M13 allows a POST read only for an id on the parseGold allowlist", () => {
+    const m: Any = base();
+    act(m).method = "POST";
+    expect(parseGold(m, ["demo.item_get"]).actions[0]!.method).toBe("POST");
+    expect(() => parseGold(m, ["demo.other", "other.item_get"])).toThrow(/cannot be read/);
+    expect(() => parseGold({ ...m, actions: [{ ...act(m), scope: "fill" }] }, ["demo.item_get"])).toThrow(PlugError);
   });
 
   it.each([["Authorization", "x"], ["cookie", "x"], ["Host", "x"], ["X-Key", "{fields}"], ["X-A", "a\r\nB: c"]])(
