@@ -78,3 +78,19 @@ and the API server are both untrusted.
 | R22 | A 429 has a negative, zero, or huge `Retry-After`. | Keep the wait between 1 s and 1 h. A missing value or a date waits 60 s. | `tests/runner.test.ts` (fixture server) |
 | R23 | The args hash is a plain SHA-256, so anyone who reads the trail can test a guess at the args. | Use an HMAC SHA-256 with a per-install key (`argsKey`). | `tests/runner.test.ts` |
 | R24 | The trail write fails after foxgate has used up the approval token. | Write the trail before foxgate decides. A failed write refuses with `log-failed`, and the token still works. | `tests/runner.test.ts` |
+
+## Planner tools
+
+The planner sees three tools: `plug_search`, `plug_describe`, and
+`plug_call`. It never sees the action list itself. Its input is untrusted.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| P1 | The planner calls an action of an integration that the user has not connected. | Refuse with `not-connected`. Nothing is sent. | `tests/planner.test.ts` |
+| P2 | The planner makes more calls in one turn than `maxCallsPerTurn` (default 8). | Refuse with `turn-limit` until `newTurn()`. | `tests/planner.test.ts` |
+| P3 | A search matches an integration that is not connected. | Return no action from it. Return only its name in `notConnected`, so the planner can offer to connect it. | `tests/planner.test.ts` |
+| P4 | A query is empty, has no known word, or is very long. | Return an empty list, or search the first 500 characters. Never return more than `limit` (at most 10) results. | `tests/planner.test.ts` |
+| P5 | The planner sends a tool name or an input shape that is not known (`args` as a string, extra keys). | Refuse with `bad-input`. | `tests/planner.test.ts` |
+| P6 | `plug_describe` gets an id that does not exist. | Refuse with `unknown-action`. | `tests/planner.test.ts` |
+| P7 | The schema that `plug_describe` gives for a grammar allows extra keys. | Every schema has `additionalProperties: false`. | `tests/planner.test.ts` |
+| P8 | An input key is a name on `Object.prototype` (`constructor`, `toString`). | Refuse with `bad-input` as an unknown input. foxplug looks up tool inputs with `Object.hasOwn`. | `tests/planner.test.ts` |
