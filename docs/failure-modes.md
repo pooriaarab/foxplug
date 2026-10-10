@@ -23,6 +23,7 @@ manifest that could reach a host it does not name.
 | M6 | `{secret}` is anywhere but `auth.format`, or `auth.format` does not hold it exactly one time. | Refuse with `bad-template` or `bad-auth`. `secret` is not a valid argument name. | `tests/manifest.test.ts` |
 | M7 | A manifest has a key that the format does not know (`script`, `transform`, `__proto__`). | Refuse with `unknown-key`. Data cannot carry code. | `tests/manifest.test.ts` |
 | M8 | An action has no scope, an unknown scope, or `read` on `PUT`, `PATCH`, or `DELETE`. | Refuse with `bad-scope`. | `tests/manifest.test.ts` |
+| M13 | An action has scope `fill`, or scope `read` on `POST`. A `read` runs with no approval, so either one lets a manifest write with no approval. | Refuse with `bad-scope`. `read` is for `GET` only. A `POST` read is allowed only for an id on the internal allowlist that `parseGold` takes. `parseManifest` passes an empty allowlist, so no other manifest can have one. | `tests/manifest.test.ts` |
 | M9 | A static header sets `Authorization`, `Cookie`, `Host`, or the auth header, or holds a placeholder or a line break. | Refuse with `bad-header`. | `tests/manifest.test.ts` |
 | M10 | Two actions share an id, or a list or a string is over its size limit. | Refuse with `bad-manifest`. | `tests/manifest.test.ts` |
 | M11 | A loopback host (`127.0.0.1:8080`) in a manifest when the caller did not pass `{ loopback: true }`. | Refuse with `bad-host`. Loopback is for tests only. | `tests/manifest.test.ts` |
