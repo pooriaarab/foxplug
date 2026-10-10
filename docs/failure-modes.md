@@ -55,10 +55,14 @@ and the API server are both untrusted.
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
 | R1 | A manifest update moves an integration to a host that its stored key was not saved for. | The integration's own header rule does not cover that host, so foxplug refuses with `not-connected` and sends nothing. | `tests/runner.test.ts` |
+| R2 | The API answers with a redirect to another host. | Refuse with `redirect-host`. The other host gets no request. A redirect on the same host and protocol is followed for `GET` only, at most 3 times, and foxplug decides the header again for each hop. | `tests/runner.test.ts` |
 | R3 | The API echoes the key in its response or in an error. | foxvault `redact` replaces the key with its handle before anything else reads the body. | `tests/runner.test.ts` |
 | R4 | The response holds hidden characters or text that gives the model orders. | foxshield removes hidden characters and wraps instruction text in `<untrusted-data>`. The whole result is inside `<untrusted source="foxplug:…">`, and the data cannot close that tag. | `tests/runner.test.ts` |
 | R5 | The planner calls a write action with no approval, or uses the approval for call A on call B, or uses one approval two times. | `ask` with no request sent. Then foxgate refuses with `action-changed` or `token-used`, and nothing is sent. | `tests/runner.test.ts` |
 | R6 | The planner calls an action that no grant covers. | Refuse with the foxgate reason (`no-grant`). Nothing is sent. | `tests/runner.test.ts` |
+| R7 | The planner calls an action faster than its `rate.perMin`, or the API answers 429. | Refuse with `rate-limited` and `retryAfterMs`. Nothing is sent until that time. foxplug reads `Retry-After` from the 429. | `tests/runner.test.ts` |
+| R8 | The response is larger than `maxResponseBytes`, or the result is longer than `maxResultChars`. | Stop reading and refuse with `too-large`. A long result is cut and has `truncated: true`. | `tests/runner.test.ts` |
+| R9 | The response holds fields the planner does not need, for example a private email. | Only the `project` paths reach the planner. A `__proto__` path cannot change a prototype. | `tests/runner.test.ts` |
 | R10 | The audit trail cannot be written. | Refuse with `log-failed` and send nothing. Each call writes a foxtrail entry with an args hash, never the args, the key, or the body. | `tests/runner.test.ts` |
 | R11 | The vault is locked. | Refuse with `locked`. Nothing is sent. | `tests/runner.test.ts` |
 | R12 | An `oauth-pkce` integration has no foxlink link. | Refuse with `not-connected`. With a link, only `link.fetch` sends the request. | `tests/runner.test.ts` |
@@ -68,6 +72,9 @@ and the API server are both untrusted.
 | R16 | The runner uses a Node-only global such as `Buffer`, so it fails in Firefox. | Use `Uint8Array` and `Array.from` only. A test runs a call with `Buffer` removed from `globalThis`. | `tests/runner.test.ts` |
 | R17 | The response holds hidden characters or instruction text in an object key. | foxshield runs on keys as well as values. | `tests/runner.test.ts` |
 | R18 | In a browser, `redirect: "manual"` gives an `opaqueredirect` response with status 0 and no `Location`, so foxplug cannot check the host. | Refuse with `redirect`. foxplug never treats it as a response. | `tests/runner.test.ts` |
+| R19 | A same-host redirect changes the protocol (`https:` to `http:`). | Refuse with `redirect-protocol`. Nothing goes to the new URL. | `tests/runner.test.ts` (fixture server) |
 | R20 | The API answers `304 Not Modified`, or another 3xx that is not a redirect. | Return it as a response (`error` with its `httpStatus`). Only 301, 302, 303, 307, and 308 are redirects. | `tests/runner.test.ts` (fixture server) |
+| R21 | Calls run at the same time. A check before the awaits and a take after them let all of them pass `rate.perMin`. | Check and take the slot in one step. A call that ends in `ask`, a deny, or `log-failed` gives its slot back. | `tests/runner.test.ts` |
+| R22 | A 429 has a negative, zero, or huge `Retry-After`. | Keep the wait between 1 s and 1 h. A missing value or a date waits 60 s. | `tests/runner.test.ts` (fixture server) |
 | R23 | The args hash is a plain SHA-256, so anyone who reads the trail can test a guess at the args. | Use an HMAC SHA-256 with a per-install key (`argsKey`). | `tests/runner.test.ts` |
 | R24 | The trail write fails after foxgate has used up the approval token. | Write the trail before foxgate decides. A failed write refuses with `log-failed`, and the token still works. | `tests/runner.test.ts` |

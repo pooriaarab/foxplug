@@ -61,7 +61,7 @@ const HOST = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,6
 export const LOOPBACK = /^(?:127\.0\.0\.1|localhost):\d{1,5}$/;
 const SEGMENT = /^[A-Za-z0-9._~:-]+$/;
 const HEADER = /^[A-Za-z0-9-]{1,60}$/;
-const PROJECT = /^[A-Za-z0-9_]+(?:\[\])?(?:\.[A-Za-z0-9_]+(?:\[\])?)*$/;
+const PROJECT = /^(?:\[\]|[A-Za-z0-9_]+(?:\[\])?)(?:\.[A-Za-z0-9_]+(?:\[\])?)*$/;
 const SCOPES = ["read", "submit", "pay"];
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const TYPES = ["string", "integer", "number", "boolean", "object", "array"];
