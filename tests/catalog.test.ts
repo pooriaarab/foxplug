@@ -1,10 +1,11 @@
 import { createFoxgate } from "foxgate";
 import { createVault } from "foxvault";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { connectKey, createRunner, gateTools, GOLD, parseManifest } from "../src/index.js";
+import { POST_READS } from "../src/catalog.js";
+import { connectKey, createRunner, gateTools, GOLD, parseManifest, PlugError } from "../src/index.js";
+import { parseGold } from "../src/manifest.js";
 import { fixture } from "./fixture.js";
 
-const POST_READS = ["linear.issue_list", "linear.team_list", "notion.search"];
 let api: Awaited<ReturnType<typeof fixture>>;
 beforeAll(async () => {
   api = await fixture();
@@ -15,7 +16,7 @@ describe("gold catalog", () => {
   it("G1 has 8 manifests that pass the strict validator with real hosts", () => {
     expect(GOLD.map((m) => m.id)).toEqual(["airtable", "asana", "github", "linear", "notion", "slack", "stripe", "todoist"]);
     for (const m of GOLD) {
-      expect(() => parseManifest(structuredClone(m))).not.toThrow();
+      expect(() => parseGold(structuredClone(m), POST_READS)).not.toThrow();
       expect(m.hosts.every((h) => !h.includes(":"))).toBe(true);
     }
   });
@@ -34,6 +35,14 @@ describe("gold catalog", () => {
     }
   });
 
+  it("G6 refuses a gold POST read in any manifest but the catalog", () => {
+    expect(POST_READS).toEqual(["linear.issue_list", "linear.team_list", "notion.search"]);
+    for (const id of ["linear", "notion"]) {
+      const copy = structuredClone(GOLD.find((m) => m.id === id)!);
+      expect(() => parseManifest(copy)).toThrow(expect.objectContaining({ code: "bad-scope" }) as PlugError);
+    }
+  });
+
   it("G4 uses keys that the user pastes, never a shared client ID", () => {
     for (const m of GOLD) expect(["apikey", "pat"]).toContain(m.auth.type);
   });
@@ -49,7 +58,7 @@ describe("gold catalog", () => {
     ["asana.workspace_list", {}, "GET", "/api/1.0/workspaces", "Bearer key-asana-0001"],
   ])("G5 %s sends the expected request", async (tool, args, method, url, authorization) => {
     const gold = GOLD.find((m) => m.id === tool.split(".")[0])!;
-    const m = parseManifest({ ...structuredClone(gold), hosts: [api.host] }, { loopback: true });
+    const m = parseGold({ ...structuredClone(gold), hosts: [api.host] }, POST_READS, { loopback: true });
     const vault = createVault();
     await vault.initialize();
     await connectKey(vault, m, `key-${m.id}-0001`, { loopback: true });
