@@ -18,7 +18,7 @@ manifest that could reach a host it does not name.
 | M1 | A host holds a placeholder (`{tenant}.example.com`). | Refuse with `bad-host`. A placeholder can never pick the host. | `tests/manifest.test.ts` |
 | M2 | A host is not a literal hostname: a wildcard, a scheme, a port, a path, user info, an IP address, uppercase letters. | Refuse with `bad-host`. | `tests/manifest.test.ts` |
 | M3 | A path tries to change the host or leave its root: `//evil.com/x`, no leading `/`, `?`, `#`, `@`, `.` or `..` segments. | Refuse with `bad-path`. | `tests/manifest.test.ts` |
-| M4 | A placeholder is in part of a path segment (`/a{b}`), or names an argument that the action does not declare, or a path argument is optional. | Refuse with `bad-path` or `bad-template`. | `tests/manifest.test.ts` |
+| M4 | A placeholder is in part of a path segment (`/a{b}`), or names an argument that the action does not declare, or a path argument is optional, or a body or query string holds a declared `{arg}` next to other text. | Refuse with `bad-path` or `bad-template`. Only a whole-string `{arg}` is filled. Other braces in a body string, as in a GraphQL query, are literal text. | `tests/manifest.test.ts` |
 | M5 | An action names a host that is not in `hosts`. | Refuse with `bad-host`. | `tests/manifest.test.ts` |
 | M6 | `{secret}` is anywhere but `auth.format`, or `auth.format` does not hold it exactly one time. | Refuse with `bad-template` or `bad-auth`. `secret` is not a valid argument name. | `tests/manifest.test.ts` |
 | M7 | A manifest has a key that the format does not know (`script`, `transform`, `__proto__`). | Refuse with `unknown-key`. Data cannot carry code. | `tests/manifest.test.ts` |
@@ -79,3 +79,16 @@ The planner sees three tools: `plug_search`, `plug_describe`, and
 | P5 | The planner sends a tool name or an input shape that is not known (`args` as a string, extra keys). | Refuse with `bad-input`. | `tests/planner.test.ts` |
 | P6 | `plug_describe` gets an id that does not exist. | Refuse with `unknown-action`. | `tests/planner.test.ts` |
 | P7 | The schema that `plug_describe` gives for a grammar allows extra keys. | Every schema has `additionalProperties: false`. | `tests/planner.test.ts` |
+
+## Gold catalog
+
+The gold catalog is 8 hand-written manifests in `src/catalog/`. The package
+ships them, so a mistake in one reaches every user.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| G1 | A gold manifest does not pass the strict validator, or uses a loopback host. | Importing the catalog throws. `parseManifest` runs with no `loopback` option. | `tests/catalog.test.ts` |
+| G2 | Code changes a gold manifest at run time. | The manifests are frozen, so the change throws. | `tests/catalog.test.ts` |
+| G3 | A gold action that changes data has scope `read`, so it can run with no approval. | Every non-GET action is `submit`, except a short list of POST reads. A GraphQL read starts with `query`, never `mutation`. | `tests/catalog.test.ts` |
+| G4 | A gold manifest needs a shared OAuth client ID. | Every gold manifest uses a key or token that the user pastes (`apikey` or `pat`). | `tests/catalog.test.ts` |
+| G5 | A gold manifest builds the wrong request: wrong path, method, or auth header form. | With its host moved to the fixture server, one action of each manifest sends the expected method, path, and `Authorization` value. | `tests/catalog.test.ts` (fixture server) |
