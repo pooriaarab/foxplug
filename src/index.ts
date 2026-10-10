@@ -5,3 +5,4 @@ export {
 } from "./manifest.js";
 export { checkArgs } from "./args.js";
 export { buildRequest, findAction, type PlugRequest } from "./request.js";
+export { connectKey, createRunner, gateTools, handleOf, type CallResult, type RunnerOptions } from "./runner.js";
