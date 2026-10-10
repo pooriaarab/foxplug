@@ -63,6 +63,7 @@ transcripts. Full rule: pooriaarab/agents-private `rules/fleet-claim.md`.
 
 ```text
 src/              the library source, built to dist/ by tsc
+src/catalog/      the gold manifests (JSON data, no code)
 tests/            tests for the failure modes in docs/failure-modes.md
 docs/failure-modes.md  every way the code can fail, written before the code
 .github/          CI, release, PR and issue standards
