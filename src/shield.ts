@@ -10,7 +10,8 @@ export function shieldStrings(value: unknown): unknown {
   }
   if (Array.isArray(value)) return value.map(shieldStrings);
   if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, shieldStrings(v)]));
+    // Keys too: a response can carry instruction text in a key as well as in a value (R17).
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [shieldStrings(k) as string, shieldStrings(v)]));
   }
   return value;
 }

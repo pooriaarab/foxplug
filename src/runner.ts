@@ -1,12 +1,9 @@
 import { canonicalJson, type Gate, type ToolSpec } from "foxgate";
 import type { Vault } from "foxvault";
 import { fail, PlugError } from "./errors.js";
-import { LOOPBACK, type Manifest } from "./manifest.js";
+import { LOOPBACK, type ActionDef, type Manifest } from "./manifest.js";
 import { buildRequest, findAction, type PlugRequest } from "./request.js";
 import { fence, shieldStrings } from "./shield.js";
-
-/** foxvault only adds a header to requests that come from this origin. */
-const ORIGIN = "moz-extension://foxplug-runner/";
 
 export interface RunnerOptions {
   manifests: Manifest[];
@@ -18,6 +15,11 @@ export interface RunnerOptions {
   /** foxlink links for `oauth-pkce` integrations, by integration id. */
   links?: Record<string, { fetch(url: string, init?: RequestInit): Promise<Response> }>;
   fetch?: typeof fetch;
+  /**
+   * The HMAC SHA-256 key for the foxtrail args hash. Keep one key per install, so
+   * that the same args give the same hash after a restart. Default: a new key in memory.
+   */
+  argsKey?: CryptoKey;
 }
 
 export type CallResult =
@@ -28,6 +30,8 @@ export type CallResult =
 const refuse = (reason: string, message: string, retryAfterMs?: number): CallResult =>
   retryAfterMs === undefined ? { status: "refused", reason, message } : { status: "refused", reason, message, retryAfterMs };
 const hostname = (host: string) => host.replace(/:\d+$/, "");
+const REDIRECTS = [301, 302, 303, 307, 308];
+const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
 export const handleOf = (manifest: Manifest) => `vault:plug-${manifest.id}`;
 
 /** The foxgate tool registry: `<integration>.<action>` with the scope from the manifest. */
@@ -49,16 +53,39 @@ export async function connectKey(vault: Vault, manifest: Manifest, key: string, 
   await vault.injectHeader({ handle, header: auth.header, hosts, format: auth.format, allowHttp });
 }
 
+/** Read the body with a stream reader. undici text() and arrayBuffer() need the Node Buffer global. */
 async function readBody(response: Response): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) return "";
   const chunks: Uint8Array[] = [];
+  let size = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    size += value.byteLength;
     chunks.push(value);
   }
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  // A Uint8Array join, not Buffer.concat: Buffer is Node only, and foxplug runs in Firefox too (R16).
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/** The approval text. For a write it also shows each argument that the render leaves out (R15). */
+function approvalText(m: Manifest, action: ActionDef, args: Record<string, unknown>): string {
+  const used = new Set<string>();
+  let text = (action.render ?? `${m.name}: ${action.summary}`).replace(/\{([a-z0-9_]+)\}/g, (_, k: string) => {
+    used.add(k);
+    const value = Object.hasOwn(args, k) ? args[k] : null;
+    return typeof value === "string" ? value : JSON.stringify(value ?? null);
+  });
+  if (action.scope === "read") return text;
+  for (const [k, v] of Object.entries(args)) if (!used.has(k) && v !== undefined) text += `\n${k}: ${JSON.stringify(v)}`;
+  return text;
 }
 
 export function createRunner(options: RunnerOptions) {
@@ -68,22 +95,49 @@ export function createRunner(options: RunnerOptions) {
     byId.set(m.id, m);
   }
   const doFetch = options.fetch ?? fetch;
+  const argsKey = options.argsKey ?? crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const linkOf = (m: Manifest) => (options.links && Object.hasOwn(options.links, m.id) ? options.links[m.id] : undefined);
 
-  /** One hop. foxvault decides the auth header for each URL, so a header never leaves the hosts it was saved for. */
+  /** A key or a link is stored for this integration. A call to one that is not connected sends nothing (R14). */
+  async function connected(m: Manifest): Promise<boolean> {
+    if (m.auth.type === "none") return true;
+    if (m.auth.type === "oauth-pkce") return linkOf(m) !== undefined;
+    return (await options.vault.list()).some((s) => s.handle === handleOf(m));
+  }
+
+  /**
+   * The auth header from this integration's own secret and header rule only. foxvault
+   * headersFor applies every rule for the host, so on a shared host it could send the
+   * key of another integration (R14).
+   */
+  async function keyHeader(m: Manifest, url: string): Promise<[string, string] | CallResult> {
+    if ((await options.vault.status()) !== "unlocked") return refuse("locked", "the vault is locked");
+    const target = new URL(url);
+    const handle = handleOf(m);
+    const rule = (await options.vault.headerRules()).find((r) =>
+      r.handle === handle && r.hosts.includes(target.hostname) && (target.protocol === "https:" || r.allowHttp));
+    const none = refuse("not-connected", `no key for ${target.host}`);
+    if (!rule) return none;
+    try {
+      const value = await options.vault.use(handle, (secret, info) =>
+        info.domains.includes(target.hostname) ? rule.format.replace("{secret}", () => secret) : undefined);
+      return value === undefined ? none : [rule.header, value];
+    } catch {
+      return none;
+    }
+  }
+
+  /** One hop. The key header is decided again for each URL, so it never leaves the hosts it was saved for. */
   async function send(m: Manifest, req: PlugRequest, url: string): Promise<Response | CallResult> {
     const init: RequestInit = { method: req.method, headers: req.headers, body: req.body, redirect: "manual" };
     if (m.auth.type === "oauth-pkce") {
-      const link = options.links?.[m.id];
+      const link = linkOf(m);
       return link ? link.fetch(url, init) : refuse("not-connected", `${m.id} has no foxlink link`);
     }
     if (m.auth.type === "none") return doFetch(url, init);
-    if ((await options.vault.status()) !== "unlocked") return refuse("locked", "the vault is locked");
-    const start = Object.entries(req.headers).map(([name, value]) => ({ name, value }));
-    const out = await options.vault.headersFor({ url, originUrl: ORIGIN, requestHeaders: start }, ORIGIN);
-    const header = m.auth.header.toLowerCase();
-    const headers = (out?.requestHeaders ?? []).filter((h) => h.value !== undefined).map((h) => [h.name, h.value!] as [string, string]);
-    if (!headers.some(([name]) => name.toLowerCase() === header)) return refuse("not-connected", `no key for ${new URL(url).host}`);
-    return doFetch(url, { ...init, headers });
+    const header = await keyHeader(m, url);
+    if (!Array.isArray(header)) return header;
+    return doFetch(url, { ...init, headers: { ...req.headers, [header[0]]: header[1] } });
   }
 
   async function call(tool: string, args: unknown, callOptions: { token?: string } = {}): Promise<CallResult> {
@@ -98,27 +152,29 @@ export function createRunner(options: RunnerOptions) {
       throw error;
     }
     const action = findAction(m, actionId);
-    const gateAction = { tool, args: req.args, domain: hostname(req.host), scope: action.scope };
-    const decision = callOptions.token ? await options.gate.redeem(callOptions.token, gateAction) : await options.gate.check(gateAction);
-    if (decision.decision === "deny") return refuse(decision.reason, decision.message);
-    if (decision.decision === "ask") {
-      const render = (action.render ?? `${m.name}: ${action.summary}`).replace(/\{([a-z0-9_]+)\}/g, (_, k: string) =>
-        typeof req.args[k] === "string" ? (req.args[k] as string) : JSON.stringify(req.args[k] ?? null));
-      return { status: "ask", requestId: decision.requestId, render };
-    }
-
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(req.args))));
-    const argsHash = Buffer.from(digest).toString("hex");
+    if (!(await connected(m))) return refuse("not-connected", `${m.name} is not connected`);
+    // An HMAC with a per-install key, so a guess at the args cannot be checked against the trail (R23).
+    const mac = await crypto.subtle.sign("HMAC", await argsKey, new TextEncoder().encode(canonicalJson(req.args)));
+    const argsHash = hex(mac);
     const log = (kind: string, data: object) => options.trail?.append({ actor: "foxplug", kind, data: { tool, scope: action.scope, argsHash, ...data } });
+    // Write the trail before foxgate decides, so a failed write never uses up an approval token (R24).
     try {
       await log("plug.call", { approved: Boolean(callOptions.token) });
     } catch {
       return refuse("log-failed", "the audit trail cannot be written, so foxplug sent nothing");
     }
+    const gateAction = { tool, args: req.args, domain: hostname(req.host), scope: action.scope };
+    const decision = callOptions.token ? await options.gate.redeem(callOptions.token, gateAction) : await options.gate.check(gateAction);
+    if (decision.decision === "deny") return refuse(decision.reason, decision.message);
+    if (decision.decision === "ask") return { status: "ask", requestId: decision.requestId, render: approvalText(m, action, req.args) };
 
     const response = await send(m, req, req.url);
     if (!(response instanceof Response)) return response;
-    if (response.status >= 300 && response.status <= 399) return refuse("redirect", "foxplug does not follow redirects");
+    // In a browser, redirect "manual" gives an opaque response: status 0 and no Location (R18).
+    // 304 and the other 3xx codes are not redirects (R20).
+    if (response.type === "opaqueredirect" || response.status === 0 || REDIRECTS.includes(response.status)) {
+      return refuse("redirect", "foxplug does not follow redirects");
+    }
     const raw = await readBody(response);
     // Redact first, so that no later step sees a key that the API echoed (R3).
     const clean = await options.vault.redact(raw);
