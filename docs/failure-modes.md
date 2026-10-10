@@ -43,3 +43,5 @@ values, and body values.
 | A4 | A query argument holds `&`, `=`, or `#`. | The server sees one query parameter with the exact value. | `tests/request.test.ts` (fixture server) |
 | A5 | A body argument holds quotes or JSON text. | The server sees the value as one JSON string. Numbers stay numbers. Optional arguments that are not set are left out. | `tests/request.test.ts` (fixture server) |
 | A6 | The URL that foxplug builds has another host or path than the manifest says. | Throw `host-mismatch` before any request. | `tests/request.test.ts` |
+| A7 | A string argument holds a lone surrogate (`\uD800`). `encodeURIComponent` throws `URIError` on it, and `URLSearchParams` changes it to U+FFFD. | Refuse with `bad-args`. The server never sees a changed value. | `tests/request.test.ts` |
+| A8 | An argument name is also a name on `Object.prototype` (`constructor`), and the planner does not send it. | The argument counts as missing: a required one is refused with `bad-args`, and an optional one is left out. foxplug reads only own keys (`Object.hasOwn`). | `tests/request.test.ts` |
