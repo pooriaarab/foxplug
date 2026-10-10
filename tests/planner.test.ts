@@ -78,6 +78,7 @@ describe("planner tools", () => {
     expect(planner.search("").results).toEqual([]);
     expect(planner.search("zzzz qqqq").results).toEqual([]);
     expect(planner.search(`${"task ".repeat(1000)}`, 50).results.length).toBeLessThanOrEqual(10);
+    expect(planner.search("task", 0).results).toHaveLength(1);
   });
 
   it.each([
