@@ -1,0 +1,27 @@
+{
+  "id": "github", "name": "GitHub", "summary": "issues, pull requests and repositories", "tier": "gold",
+  "hosts": ["api.github.com"],
+  "auth": { "type": "pat", "header": "Authorization", "format": "Bearer {secret}" },
+  "actions": [
+    { "id": "issue_search", "summary": "Search issues and pull requests with GitHub search syntax", "scope": "read",
+      "method": "GET", "path": "/search/issues", "query": { "q": "{q}", "per_page": "{per_page}" },
+      "headers": { "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+      "args": { "type": "object", "required": ["q"], "properties": { "q": { "type": "string", "description": "for example: is:open assignee:@me" }, "per_page": { "type": "integer", "minimum": 1, "maximum": 30 } } },
+      "project": ["items[].number", "items[].title", "items[].state", "items[].html_url", "items[].repository_url"] },
+    { "id": "issue_list", "summary": "List issues in one repository", "scope": "read", "method": "GET",
+      "path": "/repos/{owner}/{repo}/issues", "query": { "state": "{state}", "per_page": "{per_page}" },
+      "headers": { "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+      "args": { "type": "object", "required": ["owner", "repo"], "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "state": { "type": "string", "enum": ["open", "closed", "all"] }, "per_page": { "type": "integer", "minimum": 1, "maximum": 30 } } },
+      "project": ["[].number", "[].title", "[].state", "[].html_url", "[].user.login"] },
+    { "id": "issue_create", "summary": "Open a new issue in a repository", "scope": "submit", "method": "POST",
+      "path": "/repos/{owner}/{repo}/issues", "body": { "title": "{title}", "body": "{body}" },
+      "headers": { "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+      "args": { "type": "object", "required": ["owner", "repo", "title"], "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "title": { "type": "string", "maxLength": 256 }, "body": { "type": "string" } } },
+      "render": "Open the issue \"{title}\" in {owner}/{repo}", "project": ["number", "html_url"] },
+    { "id": "issue_comment", "summary": "Add a comment to an issue or pull request", "scope": "submit", "method": "POST",
+      "path": "/repos/{owner}/{repo}/issues/{number}/comments", "body": { "body": "{body}" },
+      "headers": { "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+      "args": { "type": "object", "required": ["owner", "repo", "number", "body"], "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "number": { "type": "integer", "minimum": 1 }, "body": { "type": "string" } } },
+      "render": "Comment on {owner}/{repo}#{number}: {body}", "project": ["html_url"] }
+  ]
+}

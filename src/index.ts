@@ -9,3 +9,4 @@ export { project } from "./project.js";
 export { connectKey, createRunner, gateTools, handleOf, type CallResult, type RunnerOptions } from "./runner.js";
 export { createIndex, tokenize } from "./search.js";
 export { createPlanner, PLANNER_TOOLS, type PlannerOptions } from "./planner.js";
+export { GOLD } from "./catalog.js";

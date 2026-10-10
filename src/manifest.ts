@@ -120,13 +120,16 @@ function checkArgsSchema(value: unknown, at: string): ArgsSchema {
   return schema as unknown as ArgsSchema;
 }
 
-/** Every string in a body must be a whole `{arg}` or hold no brace at all. */
-function bodyArgs(value: unknown, at: string, depth = 0, out: string[] = []): string[] {
+/**
+ * The whole-string `{arg}` names in a body, and the `{name}` tokens inside longer
+ * strings. A longer string is literal text (a GraphQL query has braces).
+ */
+function bodyArgs(value: unknown, at: string, depth = 0, out = { whole: [] as string[], inner: [] as string[] }) {
   if (depth > 8) fail("bad-manifest", `${at} is nested too deep`);
   if (typeof value === "string") {
     const name = whole(value);
-    if (name) out.push(name);
-    else if (hasBrace(value)) fail("bad-template", `${at} must be a whole {arg} or hold no brace`);
+    if (name) out.whole.push(name);
+    else for (const [, inner] of value.matchAll(/\{([a-z][a-z0-9_]{0,39})\}/g)) out.inner.push(inner!);
   } else if (Array.isArray(value)) value.forEach((v, i) => bodyArgs(v, `${at}[${i}]`, depth + 1, out));
   else if (typeof value === "object" && value !== null) {
     for (const [k, v] of Object.entries(value)) bodyArgs(v, `${at}.${k}`, depth + 1, out);
@@ -176,7 +179,11 @@ function checkAction(value: unknown, at: string, m: { hosts: string[]; authHeade
   }
   if (a.body !== undefined) {
     if (a.method === "GET" || a.method === "DELETE") fail("bad-manifest", `${at}: ${a.method} cannot have a body`);
-    for (const name of bodyArgs(a.body, `${at}.body`)) declared(name, "body");
+    const found = bodyArgs(a.body, `${at}.body`);
+    for (const name of found.whole) declared(name, "body");
+    for (const name of found.inner) {
+      if (Object.hasOwn(args.properties, name)) fail("bad-template", `${at}.body: {${name}} must be a whole string to be filled`);
+    }
   }
   if (a.project !== undefined) {
     for (const p of list(a.project, `${at}.project`, 20)) {
