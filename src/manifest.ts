@@ -234,8 +234,8 @@ export function parseManifest(input: unknown, options: ParseOptions = {}): Manif
  * For the gold catalog only, and not exported from the package. `postReads` lists the
  * `<manifest>.<action>` ids that may be a POST read, such as a GraphQL query or a search.
  */
-export function parseGold(input: unknown, postReads: readonly string[]): Manifest {
-  return check(input, {}, postReads);
+export function parseGold(input: unknown, postReads: readonly string[], options: ParseOptions = {}): Manifest {
+  return check(input, options, postReads);
 }
 
 function check(input: unknown, options: ParseOptions, postReads: readonly string[]): Manifest {
