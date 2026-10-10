@@ -1,0 +1,17 @@
+{
+  "id": "asana", "name": "Asana", "summary": "tasks and workspaces", "tier": "gold",
+  "hosts": ["app.asana.com"],
+  "auth": { "type": "pat", "header": "Authorization", "format": "Bearer {secret}" },
+  "actions": [
+    { "id": "workspace_list", "summary": "List workspaces and their ids", "scope": "read", "method": "GET", "path": "/api/1.0/workspaces",
+      "args": { "type": "object", "properties": {} }, "project": ["data[].gid", "data[].name"] },
+    { "id": "task_list", "summary": "List my open tasks in a workspace", "scope": "read", "method": "GET", "path": "/api/1.0/tasks",
+      "query": { "assignee": "me", "workspace": "{workspace}", "completed_since": "now", "opt_fields": "name,due_on" },
+      "args": { "type": "object", "required": ["workspace"], "properties": { "workspace": { "type": "string" } } },
+      "project": ["data[].gid", "data[].name", "data[].due_on"] },
+    { "id": "task_create", "summary": "Create a task assigned to me", "scope": "submit", "method": "POST", "path": "/api/1.0/tasks",
+      "body": { "data": { "name": "{name}", "workspace": "{workspace}", "assignee": "me", "due_on": "{due_on}" } },
+      "args": { "type": "object", "required": ["name", "workspace"], "properties": { "name": { "type": "string" }, "workspace": { "type": "string" }, "due_on": { "type": "string", "description": "YYYY-MM-DD" } } },
+      "render": "Create the Asana task \"{name}\"", "project": ["data.gid", "data.permalink_url"] }
+  ]
+}

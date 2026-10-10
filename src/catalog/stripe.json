@@ -1,0 +1,16 @@
+{
+  "id": "stripe", "name": "Stripe", "summary": "balance, charges and customers, read only", "tier": "gold",
+  "hosts": ["api.stripe.com"],
+  "auth": { "type": "apikey", "header": "Authorization", "format": "Bearer {secret}" },
+  "actions": [
+    { "id": "balance", "summary": "Show the account balance", "scope": "read", "method": "GET", "path": "/v1/balance",
+      "args": { "type": "object", "properties": {} }, "project": ["available[].amount", "available[].currency", "pending[].amount", "pending[].currency"] },
+    { "id": "charge_list", "summary": "List recent charges", "scope": "read", "method": "GET", "path": "/v1/charges", "query": { "limit": "{limit}" },
+      "args": { "type": "object", "properties": { "limit": { "type": "integer", "minimum": 1, "maximum": 50 } } },
+      "project": ["data[].id", "data[].amount", "data[].currency", "data[].status", "data[].created"] },
+    { "id": "customer_find", "summary": "Find customers by email", "scope": "read", "method": "GET", "path": "/v1/customers",
+      "query": { "email": "{email}", "limit": "{limit}" },
+      "args": { "type": "object", "required": ["email"], "properties": { "email": { "type": "string" }, "limit": { "type": "integer", "minimum": 1, "maximum": 10 } } },
+      "project": ["data[].id", "data[].email", "data[].name", "data[].created"] }
+  ]
+}

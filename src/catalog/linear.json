@@ -1,0 +1,19 @@
+{
+  "id": "linear", "name": "Linear", "summary": "issues, teams and projects", "tier": "gold",
+  "hosts": ["api.linear.app"],
+  "auth": { "type": "apikey", "header": "Authorization", "format": "{secret}" },
+  "actions": [
+    { "id": "issue_list", "summary": "List my open assigned issues", "scope": "read", "method": "POST", "path": "/graphql",
+      "body": { "query": "query($first: Int) { viewer { assignedIssues(first: $first, filter: { state: { type: { nin: [\"completed\", \"canceled\"] } } }) { nodes { identifier title url state { name } } } } }", "variables": { "first": "{first}" } },
+      "args": { "type": "object", "properties": { "first": { "type": "integer", "minimum": 1, "maximum": 50 } } },
+      "project": ["data.viewer.assignedIssues.nodes[].identifier", "data.viewer.assignedIssues.nodes[].title", "data.viewer.assignedIssues.nodes[].url", "data.viewer.assignedIssues.nodes[].state.name", "errors[].message"] },
+    { "id": "team_list", "summary": "List teams and their ids", "scope": "read", "method": "POST", "path": "/graphql",
+      "body": { "query": "query { teams { nodes { id key name } } }" },
+      "args": { "type": "object", "properties": {} },
+      "project": ["data.teams.nodes[].id", "data.teams.nodes[].key", "data.teams.nodes[].name", "errors[].message"] },
+    { "id": "issue_create", "summary": "Create an issue in a team", "scope": "submit", "method": "POST", "path": "/graphql",
+      "body": { "query": "mutation($teamId: String!, $title: String!, $description: String) { issueCreate(input: { teamId: $teamId, title: $title, description: $description }) { success issue { identifier url } } }", "variables": { "teamId": "{team_id}", "title": "{title}", "description": "{description}" } },
+      "args": { "type": "object", "required": ["team_id", "title"], "properties": { "team_id": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" } } },
+      "render": "Create the Linear issue \"{title}\"", "project": ["data.issueCreate.issue.identifier", "data.issueCreate.issue.url", "errors[].message"] }
+  ]
+}
