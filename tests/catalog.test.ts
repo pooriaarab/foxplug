@@ -39,20 +39,20 @@ describe("gold catalog", () => {
   });
 
   it.each([
-    ["github.issue_search", { q: "is:open" }, "GET", "/search/issues?q=is%3Aopen", "Bearer k-github"],
-    ["linear.issue_list", { first: 5 }, "POST", "/graphql", "k-linear"],
-    ["notion.search", { query: "plan" }, "POST", "/v1/search", "Bearer k-notion"],
-    ["todoist.task_filter", { query: "today" }, "GET", "/api/v1/tasks/filter?query=today", "Bearer k-todoist"],
-    ["airtable.base_list", {}, "GET", "/v0/meta/bases", "Bearer k-airtable"],
-    ["slack.channel_list", {}, "GET", "/api/conversations.list?exclude_archived=true", "Bearer k-slack"],
-    ["stripe.balance", {}, "GET", "/v1/balance", "Bearer k-stripe"],
-    ["asana.workspace_list", {}, "GET", "/api/1.0/workspaces", "Bearer k-asana"],
+    ["github.issue_search", { q: "is:open" }, "GET", "/search/issues?q=is%3Aopen", "Bearer key-github-0001"],
+    ["linear.issue_list", { first: 5 }, "POST", "/graphql", "key-linear-0001"],
+    ["notion.search", { query: "plan" }, "POST", "/v1/search", "Bearer key-notion-0001"],
+    ["todoist.task_filter", { query: "today" }, "GET", "/api/v1/tasks/filter?query=today", "Bearer key-todoist-0001"],
+    ["airtable.base_list", {}, "GET", "/v0/meta/bases", "Bearer key-airtable-0001"],
+    ["slack.channel_list", {}, "GET", "/api/conversations.list?exclude_archived=true", "Bearer key-slack-0001"],
+    ["stripe.balance", {}, "GET", "/v1/balance", "Bearer key-stripe-0001"],
+    ["asana.workspace_list", {}, "GET", "/api/1.0/workspaces", "Bearer key-asana-0001"],
   ])("G5 %s sends the expected request", async (tool, args, method, url, authorization) => {
     const gold = GOLD.find((m) => m.id === tool.split(".")[0])!;
     const m = parseManifest({ ...structuredClone(gold), hosts: [api.host] }, { loopback: true });
     const vault = createVault();
     await vault.initialize();
-    await connectKey(vault, m, `k-${m.id}`, { loopback: true });
+    await connectKey(vault, m, `key-${m.id}-0001`, { loopback: true });
     const { gate, host } = createFoxgate({ tools: gateTools([m]) });
     await host.addGrant({ scope: "read", domains: ["127.0.0.1"] });
     expect(await createRunner({ manifests: [m], vault, gate }).call(tool, args)).toMatchObject({ status: "ok" });
