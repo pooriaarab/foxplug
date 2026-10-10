@@ -91,6 +91,12 @@ describe("planner tools", () => {
     expect(await planner.run(name, input)).toMatchObject({ status: "refused", reason: "bad-input" });
   });
 
+  it.each(["constructor", "toString"])("P8 refuses the inherited input name %s as unknown", async (key) => {
+    const { planner } = await setup();
+    expect(await planner.run("plug_search", { query: "x", [key]: 1 }))
+      .toEqual({ status: "refused", reason: "bad-input", message: `plug_search has no input ${key}` });
+  });
+
   it("P6 refuses describe for an unknown id", async () => {
     const { planner } = await setup();
     expect(planner.describe("tasks.nope")).toMatchObject({ status: "refused", reason: "unknown-action" });
