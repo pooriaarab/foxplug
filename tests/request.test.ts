@@ -37,6 +37,8 @@ const code = (fn: () => unknown) => {
   }
 };
 
+const action = (id: string, extra: object) => ({ id, summary: id, scope: "read", method: "GET", path: "/x", ...extra });
+
 describe("buildRequest", () => {
   it("A1 refuses an undeclared argument", () => {
     expect(code(() => buildRequest(m, "get", { owner: "a", admin: true }))).toBe("bad-args");
@@ -81,7 +83,6 @@ describe("buildRequest", () => {
   });
 
   it("A8 never reads an argument from Object.prototype", () => {
-    const action = (id: string, extra: object) => ({ id, summary: id, scope: "read", method: "GET", path: "/x", ...extra });
     const p = parseManifest({
       id: "proto", name: "Proto", summary: "Proto", tier: "gold", hosts: [api.host], auth: { type: "none" },
       actions: [

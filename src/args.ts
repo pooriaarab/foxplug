@@ -1,6 +1,9 @@
 import { fail } from "./errors.js";
 import type { ArgSpec, ArgsSchema } from "./manifest.js";
 
+/** A UTF-16 high surrogate with no low one after it, or a low one with no high one before it (A7). */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
 const plain = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 
@@ -11,6 +14,7 @@ function checkValue(spec: ArgSpec | { type: string }, value: unknown, at: string
     case "string":
       if (typeof value !== "string") bad("must be a string");
       if ((value as string).length > (s.maxLength ?? 4000)) bad("is too long");
+      if (LONE_SURROGATE.test(value as string)) bad("holds a lone surrogate");
       break;
     case "integer":
     case "number":
@@ -39,7 +43,8 @@ export function checkArgs(schema: ArgsSchema, input: unknown): Record<string, un
   for (const key of Object.keys(input)) {
     if (!Object.hasOwn(schema.properties, key)) fail("bad-args", `"${key}" is not an argument of this action`);
   }
-  for (const key of schema.required ?? []) if (input[key] === undefined) fail("bad-args", `"${key}" is required`);
+  // Own keys only, so a name such as "constructor" never reads Object.prototype (A8).
+  for (const key of schema.required ?? []) if (!Object.hasOwn(input, key) || input[key] === undefined) fail("bad-args", `"${key}" is required`);
   for (const [key, value] of Object.entries(input)) {
     if (value !== undefined) checkValue(schema.properties[key]!, value, `"${key}"`);
   }

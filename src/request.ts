@@ -20,7 +20,8 @@ export function findAction(manifest: Manifest, actionId: string): ActionDef {
 function fill(template: unknown, args: Record<string, unknown>): unknown {
   if (typeof template === "string") {
     const name = whole(template);
-    return name ? args[name] : template;
+    if (!name) return template;
+    return Object.hasOwn(args, name) ? args[name] : undefined;
   }
   if (Array.isArray(template)) return template.map((v) => fill(v, args)).filter((v) => v !== undefined);
   if (typeof template === "object" && template !== null) {
