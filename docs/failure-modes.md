@@ -45,3 +45,21 @@ values, and body values.
 | A6 | The URL that foxplug builds has another host or path than the manifest says. | Throw `host-mismatch` before any request. | `tests/request.test.ts` |
 | A7 | A string argument holds a lone surrogate (`\uD800`). `encodeURIComponent` throws `URIError` on it, and `URLSearchParams` changes it to U+FFFD. | Refuse with `bad-args`. The server never sees a changed value. | `tests/request.test.ts` |
 | A8 | An argument name is also a name on `Object.prototype` (`constructor`), and the planner does not send it. | The argument counts as missing: a required one is refused with `bad-args`, and an optional one is left out. foxplug reads only own keys (`Object.hasOwn`). | `tests/request.test.ts` |
+
+## The runner
+
+`createRunner().call(tool, args)` runs one action. It asks foxgate, gets the
+key from foxvault, sends the request, and cleans the response. The planner
+and the API server are both untrusted.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| R1 | A manifest update moves an integration to a host that its stored key was not saved for. | The integration's own header rule does not cover that host, so foxplug refuses with `not-connected` and sends nothing. | `tests/runner.test.ts` |
+| R3 | The API echoes the key in its response or in an error. | foxvault `redact` replaces the key with its handle before anything else reads the body. | `tests/runner.test.ts` |
+| R4 | The response holds hidden characters or text that gives the model orders. | foxshield removes hidden characters and wraps instruction text in `<untrusted-data>`. The whole result is inside `<untrusted source="foxplug:…">`, and the data cannot close that tag. | `tests/runner.test.ts` |
+| R5 | The planner calls a write action with no approval, or uses the approval for call A on call B, or uses one approval two times. | `ask` with no request sent. Then foxgate refuses with `action-changed` or `token-used`, and nothing is sent. | `tests/runner.test.ts` |
+| R6 | The planner calls an action that no grant covers. | Refuse with the foxgate reason (`no-grant`). Nothing is sent. | `tests/runner.test.ts` |
+| R10 | The audit trail cannot be written. | Refuse with `log-failed` and send nothing. Each call writes a foxtrail entry with an args hash, never the args, the key, or the body. | `tests/runner.test.ts` |
+| R11 | The vault is locked. | Refuse with `locked`. Nothing is sent. | `tests/runner.test.ts` |
+| R12 | An `oauth-pkce` integration has no foxlink link. | Refuse with `not-connected`. With a link, only `link.fetch` sends the request. | `tests/runner.test.ts` |
+| R13 | Two manifests have the same id. | `createRunner` throws `bad-manifest`. | `tests/runner.test.ts` |
