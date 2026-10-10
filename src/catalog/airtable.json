@@ -1,0 +1,17 @@
+{
+  "id": "airtable", "name": "Airtable", "summary": "bases, tables and records", "tier": "gold",
+  "hosts": ["api.airtable.com"],
+  "auth": { "type": "pat", "header": "Authorization", "format": "Bearer {secret}" },
+  "actions": [
+    { "id": "base_list", "summary": "List the bases that your token can read", "scope": "read", "method": "GET", "path": "/v0/meta/bases",
+      "args": { "type": "object", "properties": {} }, "project": ["bases[].id", "bases[].name"] },
+    { "id": "record_list", "summary": "List records in a table", "scope": "read", "method": "GET", "path": "/v0/{base_id}/{table}",
+      "query": { "maxRecords": "{max}", "view": "{view}" },
+      "args": { "type": "object", "required": ["base_id", "table"], "properties": { "base_id": { "type": "string" }, "table": { "type": "string" }, "max": { "type": "integer", "minimum": 1, "maximum": 50 }, "view": { "type": "string" } } },
+      "project": ["records[].id", "records[].fields"] },
+    { "id": "record_create", "summary": "Add one record to a table", "scope": "submit", "method": "POST", "path": "/v0/{base_id}/{table}",
+      "body": { "records": [{ "fields": "{fields}" }] },
+      "args": { "type": "object", "required": ["base_id", "table", "fields"], "properties": { "base_id": { "type": "string" }, "table": { "type": "string" }, "fields": { "type": "object" } } },
+      "render": "Add a record to {table}: {fields}", "project": ["records[].id"] }
+  ]
+}

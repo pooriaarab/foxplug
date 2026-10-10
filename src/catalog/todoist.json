@@ -1,0 +1,18 @@
+{
+  "id": "todoist", "name": "Todoist", "summary": "tasks and due dates", "tier": "gold",
+  "hosts": ["api.todoist.com"],
+  "auth": { "type": "apikey", "header": "Authorization", "format": "Bearer {secret}" },
+  "actions": [
+    { "id": "task_filter", "summary": "List tasks that match a filter such as today or overdue", "scope": "read", "method": "GET",
+      "path": "/api/v1/tasks/filter", "query": { "query": "{query}" },
+      "args": { "type": "object", "required": ["query"], "properties": { "query": { "type": "string", "description": "for example: today | overdue" } } },
+      "project": ["results[].id", "results[].content", "results[].due.string", "results[].priority"] },
+    { "id": "task_create", "summary": "Add a task with an optional due date", "scope": "submit", "method": "POST", "path": "/api/v1/tasks",
+      "body": { "content": "{content}", "due_string": "{due}" },
+      "args": { "type": "object", "required": ["content"], "properties": { "content": { "type": "string" }, "due": { "type": "string", "description": "for example: tomorrow 9am" } } },
+      "render": "Add the Todoist task \"{content}\" due {due}", "project": ["id", "content", "due.string"] },
+    { "id": "task_close", "summary": "Mark a task as done", "scope": "submit", "method": "POST", "path": "/api/v1/tasks/{task_id}/close",
+      "args": { "type": "object", "required": ["task_id"], "properties": { "task_id": { "type": "string" } } },
+      "render": "Mark the Todoist task {task_id} as done" }
+  ]
+}

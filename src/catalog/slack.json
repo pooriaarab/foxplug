@@ -1,0 +1,19 @@
+{
+  "id": "slack", "name": "Slack", "summary": "channels and messages, with your own bot token", "tier": "gold",
+  "hosts": ["slack.com"],
+  "auth": { "type": "pat", "header": "Authorization", "format": "Bearer {secret}" },
+  "actions": [
+    { "id": "channel_list", "summary": "List public channels and their ids", "scope": "read", "method": "GET", "path": "/api/conversations.list",
+      "query": { "limit": "{limit}", "exclude_archived": "true" },
+      "args": { "type": "object", "properties": { "limit": { "type": "integer", "minimum": 1, "maximum": 200 } } },
+      "project": ["ok", "error", "channels[].id", "channels[].name"] },
+    { "id": "message_history", "summary": "Read recent messages in a channel", "scope": "read", "method": "GET", "path": "/api/conversations.history",
+      "query": { "channel": "{channel}", "limit": "{limit}" },
+      "args": { "type": "object", "required": ["channel"], "properties": { "channel": { "type": "string" }, "limit": { "type": "integer", "minimum": 1, "maximum": 50 } } },
+      "project": ["ok", "error", "messages[].user", "messages[].text", "messages[].ts"] },
+    { "id": "message_post", "summary": "Post a message to a channel", "scope": "submit", "method": "POST", "path": "/api/chat.postMessage",
+      "body": { "channel": "{channel}", "text": "{text}" },
+      "args": { "type": "object", "required": ["channel", "text"], "properties": { "channel": { "type": "string" }, "text": { "type": "string", "maxLength": 4000 } } },
+      "render": "Post to Slack channel {channel}: {text}", "project": ["ok", "error", "ts"] }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "notion", "name": "Notion", "summary": "pages and databases shared with your integration", "tier": "gold",
+  "hosts": ["api.notion.com"],
+  "auth": { "type": "apikey", "header": "Authorization", "format": "Bearer {secret}" },
+  "actions": [
+    { "id": "search", "summary": "Search pages and databases by title", "scope": "read", "method": "POST", "path": "/v1/search",
+      "headers": { "Notion-Version": "2022-06-28" }, "body": { "query": "{query}", "page_size": "{page_size}" },
+      "args": { "type": "object", "properties": { "query": { "type": "string" }, "page_size": { "type": "integer", "minimum": 1, "maximum": 20 } } },
+      "project": ["results[].id", "results[].object", "results[].url"] },
+    { "id": "page_content", "summary": "Read the text blocks of a page", "scope": "read", "method": "GET", "path": "/v1/blocks/{page_id}/children",
+      "headers": { "Notion-Version": "2022-06-28" }, "query": { "page_size": "{page_size}" },
+      "args": { "type": "object", "required": ["page_id"], "properties": { "page_id": { "type": "string" }, "page_size": { "type": "integer", "minimum": 1, "maximum": 100 } } },
+      "project": ["results[].type", "results[].paragraph.rich_text[].plain_text", "results[].heading_1.rich_text[].plain_text", "results[].heading_2.rich_text[].plain_text", "results[].bulleted_list_item.rich_text[].plain_text", "results[].to_do.rich_text[].plain_text"] },
+    { "id": "page_create", "summary": "Create a page under a parent page", "scope": "submit", "method": "POST", "path": "/v1/pages",
+      "headers": { "Notion-Version": "2022-06-28" },
+      "body": { "parent": { "page_id": "{parent_id}" }, "properties": { "title": { "title": [{ "text": { "content": "{title}" } }] } } },
+      "args": { "type": "object", "required": ["parent_id", "title"], "properties": { "parent_id": { "type": "string" }, "title": { "type": "string" } } },
+      "render": "Create the Notion page \"{title}\"", "project": ["id", "url"] }
+  ]
+}
