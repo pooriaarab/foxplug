@@ -1,7 +1,9 @@
 import { canonicalJson, type Gate, type ToolSpec } from "foxgate";
 import type { Vault } from "foxvault";
 import { fail, PlugError } from "./errors.js";
+import { createLimiter } from "./limit.js";
 import { LOOPBACK, type ActionDef, type Manifest } from "./manifest.js";
+import { project } from "./project.js";
 import { buildRequest, findAction, type PlugRequest } from "./request.js";
 import { fence, shieldStrings } from "./shield.js";
 
@@ -15,15 +17,20 @@ export interface RunnerOptions {
   /** foxlink links for `oauth-pkce` integrations, by integration id. */
   links?: Record<string, { fetch(url: string, init?: RequestInit): Promise<Response> }>;
   fetch?: typeof fetch;
+  now?: () => number;
   /**
    * The HMAC SHA-256 key for the foxtrail args hash. Keep one key per install, so
    * that the same args give the same hash after a restart. Default: a new key in memory.
    */
   argsKey?: CryptoKey;
+  /** Default 256 KiB. */
+  maxResponseBytes?: number;
+  /** Default 8000, about 2,000 tokens. */
+  maxResultChars?: number;
 }
 
 export type CallResult =
-  | { status: "ok" | "error"; httpStatus: number; text: string }
+  | { status: "ok" | "error"; httpStatus: number; text: string; truncated: boolean }
   | { status: "ask"; requestId: string; render: string }
   | { status: "refused"; reason: string; message: string; retryAfterMs?: number };
 
@@ -53,8 +60,8 @@ export async function connectKey(vault: Vault, manifest: Manifest, key: string, 
   await vault.injectHeader({ handle, header: auth.header, hosts, format: auth.format, allowHttp });
 }
 
-/** Read the body with a stream reader. undici text() and arrayBuffer() need the Node Buffer global. */
-async function readBody(response: Response): Promise<string> {
+/** Read the body with a stream reader, up to `max` bytes. undici text() and arrayBuffer() need the Node Buffer global. */
+async function readCapped(response: Response, max: number): Promise<string | undefined> {
   const reader = response.body?.getReader();
   if (!reader) return "";
   const chunks: Uint8Array[] = [];
@@ -63,6 +70,10 @@ async function readBody(response: Response): Promise<string> {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
+    if (size > max) {
+      await reader.cancel();
+      return undefined;
+    }
     chunks.push(value);
   }
   // A Uint8Array join, not Buffer.concat: Buffer is Node only, and foxplug runs in Firefox too (R16).
@@ -94,7 +105,11 @@ export function createRunner(options: RunnerOptions) {
     if (byId.has(m.id)) fail("bad-manifest", `two manifests have the same id ${m.id}`);
     byId.set(m.id, m);
   }
+  const now = options.now ?? Date.now;
   const doFetch = options.fetch ?? fetch;
+  const limiter = createLimiter(now);
+  const maxBytes = options.maxResponseBytes ?? 256 * 1024;
+  const maxChars = options.maxResultChars ?? 8000;
   const argsKey = options.argsKey ?? crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const linkOf = (m: Manifest) => (options.links && Object.hasOwn(options.links, m.id) ? options.links[m.id] : undefined);
 
@@ -153,6 +168,10 @@ export function createRunner(options: RunnerOptions) {
     }
     const action = findAction(m, actionId);
     if (!(await connected(m))) return refuse("not-connected", `${m.name} is not connected`);
+    // Take the slot now. A check here and a take after the awaits below let two calls in flight both pass (R21).
+    const slot = limiter.take(m.id, tool, action.rate?.perMin ?? 30);
+    if (slot.wait > 0) return refuse("rate-limited", `wait ${Math.ceil(slot.wait / 1000)} s`, slot.wait);
+
     // An HMAC with a per-install key, so a guess at the args cannot be checked against the trail (R23).
     const mac = await crypto.subtle.sign("HMAC", await argsKey, new TextEncoder().encode(canonicalJson(req.args)));
     const argsHash = hex(mac);
@@ -161,32 +180,61 @@ export function createRunner(options: RunnerOptions) {
     try {
       await log("plug.call", { approved: Boolean(callOptions.token) });
     } catch {
+      slot.release();
       return refuse("log-failed", "the audit trail cannot be written, so foxplug sent nothing");
     }
     const gateAction = { tool, args: req.args, domain: hostname(req.host), scope: action.scope };
     const decision = callOptions.token ? await options.gate.redeem(callOptions.token, gateAction) : await options.gate.check(gateAction);
+    if (decision.decision !== "allow") slot.release();
     if (decision.decision === "deny") return refuse(decision.reason, decision.message);
     if (decision.decision === "ask") return { status: "ask", requestId: decision.requestId, render: approvalText(m, action, req.args) };
 
-    const response = await send(m, req, req.url);
-    if (!(response instanceof Response)) return response;
-    // In a browser, redirect "manual" gives an opaque response: status 0 and no Location (R18).
-    // 304 and the other 3xx codes are not redirects (R20).
-    if (response.type === "opaqueredirect" || response.status === 0 || REDIRECTS.includes(response.status)) {
-      return refuse("redirect", "foxplug does not follow redirects");
+    const protocol = new URL(req.url).protocol;
+    let url = req.url;
+    let response: Response | CallResult = refuse("redirect", "too many redirects");
+    for (let hop = 0; hop < 4; hop++) {
+      response = await send(m, req, url);
+      if (!(response instanceof Response)) break;
+      // In a browser, redirect "manual" gives an opaque response: status 0 and no Location (R18).
+      if (response.type === "opaqueredirect" || response.status === 0) {
+        return refuse("redirect", "the browser hides this redirect, so foxplug cannot check its host");
+      }
+      // 304 and the other 3xx codes are not redirects (R20).
+      if (!REDIRECTS.includes(response.status)) break;
+      const location = response.headers.get("location");
+      if (location === null) return refuse("redirect", "the redirect has no Location");
+      const next = new URL(location, url);
+      if (next.host !== req.host) return refuse("redirect-host", `${req.host} redirected to another host`);
+      if (next.protocol !== protocol) return refuse("redirect-protocol", `${req.host} redirected to ${next.protocol}`);
+      if (req.method !== "GET") return refuse("redirect", "foxplug follows redirects for GET only");
+      url = next.href;
+      response = refuse("redirect", "too many redirects");
     }
-    const raw = await readBody(response);
+    if (!(response instanceof Response)) return response;
+    if (response.status === 429) {
+      // Seconds only. A date, an empty or a missing value waits 60 s. The rest is kept to 1 s to 1 h (R22).
+      const header = response.headers.get("retry-after")?.trim() ?? "";
+      const seconds = header === "" ? Number.NaN : Number(header);
+      const ms = Number.isNaN(seconds) ? 60_000 : Math.min(Math.max(seconds * 1000, 1000), 3_600_000);
+      limiter.pause(m.id, ms);
+      return refuse("rate-limited", `${m.name} asked foxplug to slow down`, ms);
+    }
+    const raw = await readCapped(response, maxBytes);
+    if (raw === undefined) return refuse("too-large", `the response is over ${maxBytes} bytes`);
     // Redact first, so that no later step sees a key that the API echoed (R3).
     const clean = await options.vault.redact(raw);
     let value: unknown = clean;
     try {
       value = JSON.parse(clean);
+      if (response.ok && action.project) value = project(value, action.project);
     } catch {
       // Not JSON: keep the text.
     }
-    const text = JSON.stringify(shieldStrings(value));
-    await log("plug.result", { httpStatus: response.status, bytes: raw.length })?.catch(() => undefined);
-    return { status: response.ok ? "ok" : "error", httpStatus: response.status, text: fence(tool, text) };
+    let text = JSON.stringify(shieldStrings(value));
+    const truncated = text.length > maxChars;
+    if (truncated) text = text.slice(0, maxChars);
+    await log("plug.result", { httpStatus: response.status, bytes: raw.length, truncated })?.catch(() => undefined);
+    return { status: response.ok ? "ok" : "error", httpStatus: response.status, text: fence(tool, text), truncated };
   }
 
   return { call };
