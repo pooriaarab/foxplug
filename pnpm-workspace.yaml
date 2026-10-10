@@ -1,0 +1,3 @@
+# pnpm 11 fails the install when a dependency build script is not approved.
+# This repo has no dependency that needs one.
+allowBuilds: {}
