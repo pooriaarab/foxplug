@@ -28,3 +28,18 @@ manifest that could reach a host it does not name.
 | M10 | Two actions share an id, or a list or a string is over its size limit. | Refuse with `bad-manifest`. | `tests/manifest.test.ts` |
 | M11 | A loopback host (`127.0.0.1:8080`) in a manifest when the caller did not pass `{ loopback: true }`. | Refuse with `bad-host`. Loopback is for tests only. | `tests/manifest.test.ts` |
 | M12 | The caller changes a parsed manifest after the check. | The parsed manifest is frozen, so the change throws. | `tests/manifest.test.ts` |
+
+## Arguments and the request
+
+`buildRequest` turns the planner's arguments into one HTTP request. The
+planner is not trusted, so its values can go only into path segments, query
+values, and body values.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| A1 | The planner sends an argument that the schema does not declare. | Refuse with `bad-args`. | `tests/request.test.ts` |
+| A2 | An argument has the wrong type, is out of range, is not in its `enum`, is too long, or a required argument is missing. | Refuse with `bad-args`. | `tests/request.test.ts` |
+| A3 | A path argument is `..`, `.`, empty, or holds `/` or `\`. | Refuse with `bad-args`. Every other value is URL-encoded, and the server sees exactly one path segment for it. | `tests/request.test.ts` (fixture server) |
+| A4 | A query argument holds `&`, `=`, or `#`. | The server sees one query parameter with the exact value. | `tests/request.test.ts` (fixture server) |
+| A5 | A body argument holds quotes or JSON text. | The server sees the value as one JSON string. Numbers stay numbers. Optional arguments that are not set are left out. | `tests/request.test.ts` (fixture server) |
+| A6 | The URL that foxplug builds has another host or path than the manifest says. | Throw `host-mismatch` before any request. | `tests/request.test.ts` |
