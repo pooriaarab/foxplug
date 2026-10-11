@@ -39,6 +39,13 @@ const refuse = (reason: string, message: string, retryAfterMs?: number): CallRes
 const hostname = (host: string) => host.replace(/:\d+$/, "");
 const REDIRECTS = [301, 302, 303, 307, 308];
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
+/** Denied and asked calls per tool per minute. They give their rate slot back, so they need their own limit (R27). */
+const REFUSALS_PER_MIN = 10;
+/** Control, format, and line or paragraph separator characters, as `\uXXXX`, so a value cannot start a line (R25). */
+const escapeValue = (text: string) => text.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (c) => {
+  const code = c.codePointAt(0)!.toString(16);
+  return code.length <= 4 ? `\\u${code.padStart(4, "0")}` : `\\u{${code}}`;
+});
 export const handleOf = (manifest: Manifest) => `vault:plug-${manifest.id}`;
 
 /** The foxgate tool registry: `<integration>.<action>` with the scope from the manifest. */
@@ -92,10 +99,10 @@ function approvalText(m: Manifest, action: ActionDef, args: Record<string, unkno
   let text = (action.render ?? `${m.name}: ${action.summary}`).replace(/\{([a-z0-9_]+)\}/g, (_, k: string) => {
     used.add(k);
     const value = Object.hasOwn(args, k) ? args[k] : null;
-    return typeof value === "string" ? value : JSON.stringify(value ?? null);
+    return escapeValue(typeof value === "string" ? value : JSON.stringify(value ?? null));
   });
   if (action.scope === "read") return text;
-  for (const [k, v] of Object.entries(args)) if (!used.has(k) && v !== undefined) text += `\n${k}: ${JSON.stringify(v)}`;
+  for (const [k, v] of Object.entries(args)) if (!used.has(k) && v !== undefined) text += `\n${k}: ${escapeValue(JSON.stringify(v))}`;
   return text;
 }
 
@@ -171,6 +178,12 @@ export function createRunner(options: RunnerOptions) {
     // Take the slot now. A check here and a take after the awaits below let two calls in flight both pass (R21).
     const slot = limiter.take(m.id, tool, action.rate?.perMin ?? 30);
     if (slot.wait > 0) return refuse("rate-limited", `wait ${Math.ceil(slot.wait / 1000)} s`, slot.wait);
+    // Every call takes a deny slot too, before the trail and foxgate see it. An allowed call gives it back (R27).
+    const refusals = limiter.take(m.id, `${tool}#refused`, REFUSALS_PER_MIN);
+    if (refusals.wait > 0) {
+      slot.release();
+      return refuse("rate-limited", `too many denied or asked calls, wait ${Math.ceil(refusals.wait / 1000)} s`, refusals.wait);
+    }
 
     // An HMAC with a per-install key, so a guess at the args cannot be checked against the trail (R23).
     const mac = await crypto.subtle.sign("HMAC", await argsKey, new TextEncoder().encode(canonicalJson(req.args)));
@@ -178,22 +191,36 @@ export function createRunner(options: RunnerOptions) {
     const log = (kind: string, data: object) => options.trail?.append({ actor: "foxplug", kind, data: { tool, scope: action.scope, argsHash, ...data } });
     // Write the trail before foxgate decides, so a failed write never uses up an approval token (R24).
     try {
-      await log("plug.call", { approved: Boolean(callOptions.token) });
+      await log("plug.call", {});
     } catch {
       slot.release();
+      refusals.release();
       return refuse("log-failed", "the audit trail cannot be written, so foxplug sent nothing");
     }
     const gateAction = { tool, args: req.args, domain: hostname(req.host), scope: action.scope };
     const decision = callOptions.token ? await options.gate.redeem(callOptions.token, gateAction) : await options.gate.check(gateAction);
-    if (decision.decision !== "allow") slot.release();
+    if (decision.decision === "allow") refusals.release();
+    else slot.release();
+    // The real outcome, after foxgate decides. A token alone never means approved (R26).
+    const outcome = callOptions.token && decision.decision === "deny" ? "bad-token" : decision.decision;
+    await log("plug.decision", { outcome, ...(decision.decision === "deny" ? { reason: decision.reason } : {}) })?.catch(() => undefined);
     if (decision.decision === "deny") return refuse(decision.reason, decision.message);
     if (decision.decision === "ask") return { status: "ask", requestId: decision.requestId, render: approvalText(m, action, req.args) };
 
     const protocol = new URL(req.url).protocol;
     let url = req.url;
+    // A network error returns refused and writes a result entry, never a throw (R28).
+    const network = async () => {
+      await log("plug.result", { error: "network" })?.catch(() => undefined);
+      return refuse("network", `the request to ${req.host} failed on the network`);
+    };
     let response: Response | CallResult = refuse("redirect", "too many redirects");
     for (let hop = 0; hop < 4; hop++) {
-      response = await send(m, req, url);
+      try {
+        response = await send(m, req, url);
+      } catch {
+        return network();
+      }
       if (!(response instanceof Response)) break;
       // In a browser, redirect "manual" gives an opaque response: status 0 and no Location (R18).
       if (response.type === "opaqueredirect" || response.status === 0) {
@@ -219,7 +246,12 @@ export function createRunner(options: RunnerOptions) {
       limiter.pause(m.id, ms);
       return refuse("rate-limited", `${m.name} asked foxplug to slow down`, ms);
     }
-    const raw = await readCapped(response, maxBytes);
+    let raw: string | undefined;
+    try {
+      raw = await readCapped(response, maxBytes);
+    } catch {
+      return network();
+    }
     if (raw === undefined) return refuse("too-large", `the response is over ${maxBytes} bytes`);
     // Redact first, so that no later step sees a key that the API echoed (R3).
     const clean = await options.vault.redact(raw);
