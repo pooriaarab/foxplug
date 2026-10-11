@@ -78,6 +78,10 @@ and the API server are both untrusted.
 | R22 | A 429 has a negative, zero, or huge `Retry-After`. | Keep the wait between 1 s and 1 h. A missing value or a date waits 60 s. | `tests/runner.test.ts` (fixture server) |
 | R23 | The args hash is a plain SHA-256, so anyone who reads the trail can test a guess at the args. | Use an HMAC SHA-256 with a per-install key (`argsKey`). | `tests/runner.test.ts` |
 | R24 | The trail write fails after foxgate has used up the approval token. | Write the trail before foxgate decides. A failed write refuses with `log-failed`, and the token still works. | `tests/runner.test.ts` |
+| R25 | An argument value holds a line break (`\n`, `\r`, U+0085, U+2028, U+2029) or another control or format character. The approval text then shows a fake extra argument line. | Escape each control, format, and line or paragraph separator in a value as `\uXXXX`. A value can never start a new line in the approval text. | `tests/runner.test.ts` |
+| R26 | The trail says a call was approved when the planner only sent a token, as with a forged token. | Write a `plug.decision` entry after foxgate decides, with the real `outcome`: `allow`, `ask`, `deny`, or `bad-token` (a token that foxgate refused). | `tests/runner.test.ts` |
+| R27 | The planner repeats a call that foxgate denies or asks about. Each call gives its rate slot back, but still writes a trail entry and can add to the foxgate pending queue. | Count denied and asked calls per tool against a second limit (10 a minute). Past it, refuse with `rate-limited` before the trail or foxgate sees the call. | `tests/runner.test.ts` |
+| R28 | The request fails on the network (DNS, a reset, a refused connection), or the body stream fails. | Return `refused` with reason `network`, never a throw. Write a `plug.result` entry with `error: "network"`. | `tests/runner.test.ts` |
 
 ## Planner tools
 

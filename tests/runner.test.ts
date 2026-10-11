@@ -301,4 +301,56 @@ describe("runner", () => {
     expect(await runner.call("demo.make", { title: "A" }, { token })).toMatchObject({ status: "ok" });
     expect(api.seen).toHaveLength(1);
   });
+
+  it("R25 escapes line breaks and control characters in the approval text", async () => {
+    const { runner } = await setup();
+    const breaks = ["\n", "\r", "\u0085", "\u2028", "\u2029"];
+    for (const brk of breaks) {
+      const asked = await runner.call("demo.make", { title: `A${brk}note: "harmless"`, note: `x${brk}y` });
+      const render = asked.status === "ask" ? asked.render : "";
+      expect(render.split("\n")).toHaveLength(2);
+      expect(render.split(/[\r\u0085\u2028\u2029]/)).toHaveLength(1);
+      expect(render).toContain("note: \"harmless\"");
+    }
+    const asked = await runner.call("demo.make", { title: "A\nnote: \"harmless\"", note: "\u202Eok" });
+    expect(asked).toMatchObject({ status: "ask", render: 'Create A\\u000anote: "harmless"\nnote: "\\u202eok"' });
+  });
+
+  it("R26 writes the real foxgate outcome to the trail", async () => {
+    const { host, log, runner } = await setup();
+    await runner.call("demo.items", {});
+    const asked = await runner.call("demo.make", { title: "A" });
+    await runner.call("demo.make", { title: "A" }, { token: "forged" });
+    const token = await host.approve((asked as { requestId: string }).requestId);
+    await runner.call("demo.make", { title: "A" }, { token });
+    for (const g of await host.grants()) await host.revokeGrant(g.id);
+    await runner.call("demo.items", {});
+    const entries = await log.entries();
+    expect(JSON.stringify(entries)).not.toContain("approved");
+    const outcomes = entries.filter((e) => e.kind === "plug.decision").map((e) => (e.data as { outcome: string }).outcome);
+    expect(outcomes).toEqual(["allow", "ask", "bad-token", "allow", "deny"]);
+  });
+
+  it("R27 limits denied and asked calls before they reach the trail", async () => {
+    const { log, runner } = await setup({ now: () => 1_000_000 });
+    for (let i = 0; i < 10; i++) expect(await runner.call("demo.make", { title: `A${i}` })).toMatchObject({ status: "ask" });
+    const size = (await log.entries()).length;
+    expect(await runner.call("demo.make", { title: "B" })).toMatchObject({ status: "refused", reason: "rate-limited" });
+    expect(await runner.call("demo.make", { title: "B" }, { token: "forged" })).toMatchObject({ status: "refused", reason: "rate-limited" });
+    expect(await log.entries()).toHaveLength(size);
+    // An allowed call does not count against the limit for another tool.
+    expect(await runner.call("demo.items", {})).toMatchObject({ status: "ok" });
+  });
+
+  it("R27 does not count allowed calls against the deny limit", async () => {
+    const { runner } = await setup({ now: () => 1_000_000 });
+    for (let i = 0; i < 12; i++) expect(await runner.call("demo.items", {})).toMatchObject({ status: "ok" });
+  });
+
+  it("R28 returns refused on a network error and writes a result entry", async () => {
+    const { log, runner } = await setup({ fetch: async () => { throw new TypeError("fetch failed"); } });
+    expect(await runner.call("demo.items", {})).toMatchObject({ status: "refused", reason: "network" });
+    const result = (await log.entries()).find((e) => e.kind === "plug.result");
+    expect(result?.data).toMatchObject({ tool: "demo.items", error: "network" });
+  });
 });
