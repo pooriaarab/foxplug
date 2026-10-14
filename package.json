@@ -1,7 +1,7 @@
 {
   "name": "foxplug-agent",
   "version": "0.1.1",
-  "description": "Private integrations for local-model browser agents: manifests, a pinned runner, and three planner tools.",
+  "description": "Local AI agent API integrations for GitHub, Notion, Slack, Linear, and Stripe with JSON manifests, approval checks, and vault keys.",
   "type": "module",
   "license": "MIT",
   "author": "Pooria Arab",
@@ -41,5 +41,22 @@
     "foxshield": "^0.1.2",
     "foxtrail": "^0.1.2",
     "foxvault": "^0.1.2"
-  }
+  },
+  "keywords": [
+    "ai-agent",
+    "api-integrations",
+    "json-manifest",
+    "firefox",
+    "github",
+    "notion",
+    "slack",
+    "linear",
+    "todoist",
+    "airtable",
+    "stripe",
+    "asana",
+    "foxvault",
+    "foxgate",
+    "tool-discovery"
+  ]
 }
