@@ -1,36 +1,32 @@
 # foxplug
 
-<p align="center">Private integrations for local-model browser agents.</p>
+[![npm version](https://img.shields.io/npm/v/foxplug-agent)](https://www.npmjs.com/package/foxplug-agent)
+[![Downloads/month](https://img.shields.io/npm/dm/foxplug-agent)](https://www.npmjs.com/package/foxplug-agent)
+[![MIT license](https://img.shields.io/npm/l/foxplug-agent)](https://opensource.org/license/mit)
+![Types included](https://img.shields.io/badge/types-included-blue)
 
-<p align="center">
-  <a href="https://github.com/pooriaarab/foxplug/actions"><img src="https://github.com/pooriaarab/foxplug/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"/></a>
-</p>
+[Setup](#install) · [API reference](#runtime-surfaces) · [Comparisons](#compare) · [npm package](https://www.npmjs.com/package/foxplug-agent)
 
-foxplug lets an AI agent use web APIs such as GitHub, Notion, and Slack with
-the user's own keys, and with no server in between. An integration is a JSON
-manifest, not code. One fixed runner reads the manifest and sends the request.
-The planner sees three tools: `plug_search`, `plug_describe`, and `plug_call`.
-
-Your keys stay on the device in [foxvault](https://github.com/pooriaarab/foxvault),
-pinned to the hosts in the manifest. [foxgate](https://github.com/pooriaarab/foxgate)
-asks the user before each write. [foxshield](https://github.com/pooriaarab/foxshield)
-cleans each response, and [foxtrail](https://github.com/pooriaarab/foxtrail) logs
-each call. The npm package is `foxplug-agent`, because another project uses the
-name `foxplug`.
+foxplug is an open-source API integration library for local-model browser agents.
+JSON manifests define actions; a fixed runner validates arguments, checks approvals, and calls vendor APIs.
+It publishes as `foxplug-agent` and exposes three planner tools.
 
 ## Install
 
 ```bash
-npm i foxplug-agent foxgate foxvault
+npm install foxplug-agent foxgate foxvault
 ```
 
-You need Node 24 or later, or a Firefox extension.
+Node.js 24 or later is required for this example.
+The runner also works in Firefox extensions with vendor host permissions.
+The package includes TypeScript types and four direct runtime dependencies: foxgate, foxshield, foxtrail, and foxvault.
 
-## Example
+## Request your first approval
 
-This runs as written. With no token it stops at the approval step, so it sends
-nothing to GitHub.
+Save this example as `quickstart.mjs`, then run `node quickstart.mjs`.
+It stores a dummy key and requests approval without sending an API request.
+No environment variables or `.env` file are required.
+Success prints `ask Open the issue "Try foxplug" in me/notes`.
 
 ```js
 import { createFoxgate } from "foxgate";
@@ -40,7 +36,7 @@ import { connectKey, createPlanner, createRunner, gateTools, GOLD } from "foxplu
 const github = GOLD.find((m) => m.id === "github");
 const vault = createVault();
 await vault.initialize();
-await connectKey(vault, github, process.env.GITHUB_TOKEN ?? "paste-your-token-here");
+await connectKey(vault, github, "dry-run-placeholder");
 
 const { gate, host } = createFoxgate({ tools: gateTools([github]) });
 await host.addGrant({ scope: "read", domains: ["api.github.com"] });
@@ -72,79 +68,84 @@ Connected integrations: GitHub (issues, pull requests and repositories).
 ask Open the issue "Try foxplug" in me/notes
 ```
 
-## Use cases
-
-| Who | What they build | How foxplug helps |
-|---|---|---|
-| A browser agent author (for example foxmate) | An agent on a small local model that can file issues and add tasks | The model sees 3 tools, not 25 action schemas. Writes wait for the user. |
-| A privacy-minded user | A personal assistant that reads their Linear and Todoist | Keys and data go only from the browser to the vendor. No relay sees them. |
-| An MCP server or tool-loop author | A tool layer for any agent framework | `plug_describe` returns a closed JSON Schema, ready for a grammar such as the llama-server `json_schema` option. |
-| A team with an internal API | A custom integration for their own service | Write one JSON manifest. The runner, the approvals, and the logging come with it. |
-| A security reviewer | A review of what an agent can reach | Each manifest lists its hosts and the scope of each action. Data cannot add code. |
+For a live GitHub call, replace the dummy key with `process.env.GITHUB_TOKEN` and use a repository you control.
+Export `GITHUB_TOKEN` in your shell, or load a `.env` file with `node --env-file=.env quickstart.mjs`.
+Show the approval text to the user before calling `host.approve`.
+After redemption succeeds, the returned GitHub issue URL is the visible success signal.
+Keep tokens outside planner messages and logs.
 
 ## How it works
 
-```mermaid
-flowchart TD
-  P[Planner] -->|plug_search| S[BM25 over connected integrations]
-  P -->|plug_call id, args| R[Runner]
-  R --> A[Check args against the manifest schema]
-  A --> U[Build URL: host from manifest only]
-  U --> T[foxtrail: args HMAC, before any decision]
-  T --> G{foxgate}
-  G -- read grant --> V[Add this integration's key, for its pinned hosts only]
-  G -- write --> Q[ask the user with every argument, one call per approval]
-  V --> F[fetch]
-  F --> X[Response: size cap, redact, project, foxshield, fence]
-  X --> P
+```text
+Planner -> plug_search / plug_describe -> connected action schema
+Planner -> plug_call -> validate arguments -> build pinned request
+        -> optional audit trail -> foxgate -> foxvault header -> vendor API
+        <- untrusted fence <- foxshield <- projection <- key redaction
 ```
 
-1. `parseManifest` refuses a manifest that could choose its host from data.
-   Hosts are literal hostnames. A `{arg}` fills a whole path segment, a query
-   value, or a body value, and nothing else. A `read` action runs with no
-   approval, so it must be a `GET`, and a manifest cannot use the `fill` scope.
-   Only the gold catalog has a short, hand-checked list of POST reads.
-2. `buildRequest` checks the planner's arguments against the action schema.
-   It refuses extra arguments, and path values such as `..` or `a/b`.
-3. foxplug writes the foxtrail entry first, so a failed write stops the call
-   before it can use up an approval. Then foxgate decides. A read with a grant
-   runs. A write returns `ask` with text that shows every argument, and the
-   approval token works for that exact call, one time.
-4. foxplug adds only the key of the called integration, from its own foxvault
-   secret and header rule, and only when the URL host is one that the key was
-   saved for. Another integration on the same host never lends its key.
-5. In Node, foxplug follows a redirect on the same host and protocol for `GET`,
-   at most 3 times, and decides the key again on each hop. It refuses a
-   redirect to another host or protocol. In a browser, `fetch` hides where a
-   redirect goes (an `opaqueredirect` response with status 0), so foxplug
-   refuses every redirect there.
-6. The response is cut at 256 KiB. foxvault replaces any echoed key with its
-   handle. Only the manifest's `project` fields stay. foxshield strips hidden
-   characters and marks instruction text. The result is cut at 8,000
-   characters and wrapped in `<untrusted source="foxplug:…">`.
+Manifest hosts are literal hostnames; arguments fill path segments, query values, or body values.
+Reads require a grant. Writes return approval text before the request runs.
+The runner checks the selected integration's key and host rule.
+Responses pass through size limits, key redaction, optional projection, and text scanning.
 
-Every failure mode has a test against a local HTTP server: see
-[docs/failure-modes.md](docs/failure-modes.md).
+## Why it exists
 
-## Gold catalog
+A local agent needs API actions without a separate integration relay.
+foxplug keeps action definitions as data and gives the planner a small tool interface.
+Composio offers managed tool authentication; n8n offers workflows with agent tool nodes.
 
-| Integration | Auth | Actions |
-|---|---|---|
-| GitHub | Personal access token | search issues, list issues, open an issue, comment |
-| Linear | Personal API key | my open issues, teams, create an issue |
-| Notion | Internal integration token | search, read page text, create a page |
-| Todoist | API token | filter tasks, add a task, close a task |
-| Airtable | Personal access token | bases, list records, add a record |
-| Slack | Your own app's bot token | channels, read messages, post a message |
-| Stripe | Restricted key | balance, charges, find customers (read only) |
-| Asana | Personal access token | workspaces, my tasks, create a task |
+## Compare
 
-None of them needs a shared OAuth client ID. The user makes the key in the
-vendor's settings and pastes it into your UI, never into the chat.
+Scope checked on 2026-10-14 against the linked official documentation.
 
-## API
+| Scope | foxplug | [Composio](https://docs.composio.dev/docs/authentication) | [n8n](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent/) |
+|---|---|---|---|
+| Main role | Manifest-based API runner | Tool authentication and execution | Workflow automation with agent tools |
+| Configuration | JSON manifests and JavaScript | Auth configs, sessions, toolkits | Workflow and tool nodes |
+| Execution | Your Node.js app or Firefox extension | Composio API and connected accounts | n8n instance |
+| Credentials | Supplied vault or link | Managed or custom auth | Workflow credentials |
 
-foxplug is a library only. It has no CLI and no MCP server.
+n8n also documents [self-hosting on your infrastructure](https://docs.n8n.io/hosting/).
+
+## Coverage
+
+| Integration | Actions | Implemented scope | Live verification |
+|---|---|---|---|
+| GitHub | 4 | Search/list issues, create issue, comment | Pending |
+| Linear | 3 | Assigned issues, teams, create issue | Pending |
+| Notion | 3 | Search, read page blocks, create page | Pending |
+| Todoist | 3 | Filter, create, close tasks | Pending |
+| Airtable | 3 | Bases, list records, create record | Pending |
+| Slack | 3 | Channels, message history, post message | Pending |
+| Stripe | 3 | Balance, charges, customers; read only | Pending |
+| Asana | 3 | Workspaces, assigned tasks, create task | Pending |
+
+The source catalog has eight manifests and 25 actions: 16 reads and nine writes.
+All catalog entries have local-server tests. Zero entries are live credential-checked in the repository's stated verification level.
+The catalog is called `GOLD` in code; that name does not certify provider compatibility.
+These manifests are implemented, rather than stubs. Confirm each provider with real credentials before relying on it.
+
+## Common use cases
+
+1. Firefox agent authors: discover GitHub actions and ask before opening an issue.
+2. Personal-assistant authors: read Linear issues and Todoist tasks with user-supplied keys.
+3. Tool-loop authors: expose the three planner tools and fetch each action schema on demand.
+4. Internal API teams: define a custom JSON manifest with literal hosts and approved write scopes.
+5. Finance-tool authors: read Stripe balances and charges through the read-only catalog actions.
+
+## Features
+
+- **Manifest validation:** literal hosts, declared arguments, and bounded schemas.
+- **Action discovery:** local BM25 search over connected integrations.
+- **Approvals:** foxgate checks each call; write approval tokens bind to the exact call.
+- **Credential headers:** foxvault supplies the selected integration's host-pinned key.
+- **Response handling:** key redaction, projection, foxshield scanning, and an untrusted-data fence.
+- **Audit hooks:** optional foxtrail entries with a keyed argument hash.
+- **Rate limits:** per-action slots, refusal limits, and provider 429 pauses.
+
+## Runtime surfaces
+
+foxplug is a library only. It has no command-line interface or Model Context Protocol (MCP) server.
 
 | Export | What it does |
 |---|---|
@@ -155,7 +156,7 @@ foxplug is a library only. It has no CLI and no MCP server.
 | `createPlanner(options)` | Returns `tools`, `prompt()`, `search`, `describe`, `call`, `run(name, input)`, and `newTurn()`. Options: `runner`, `manifests`, `connected`, `maxCallsPerTurn` (default 8). |
 | `GOLD` | The 8 gold manifests. |
 | `PLANNER_TOOLS` | The 3 tool definitions as JSON Schema. |
-| `buildRequest`, `checkArgs`, `project`, `createIndex` | The parts the runner and planner use. |
+| `buildRequest`, `findAction`, `checkArgs`, `project`, `createIndex`, `tokenize`, `handleOf` | The parts the runner and planner use. |
 
 `call` returns `ok` or `error` with `httpStatus`, `text`, and `truncated`;
 `ask` with `requestId` and `render`; or `refused` with a `reason`. Reasons
@@ -163,73 +164,86 @@ include `not-connected`, `locked`, `rate-limited` (with `retryAfterMs`),
 `redirect`, `redirect-host`, `redirect-protocol`, `too-large`, `log-failed`,
 `turn-limit`, `bad-args`, and every foxgate deny reason.
 
-## Firefox APIs used
+## Delivery and behavior limits
 
-| API | MDN | Why |
-|---|---|---|
-| `fetch` with `redirect: "manual"` | [fetch()](https://developer.mozilla.org/en-US/docs/Web/API/Window/fetch) | Sends the request and does not follow redirects. In Firefox a redirect comes back as an [opaqueredirect](https://developer.mozilla.org/en-US/docs/Web/API/Response/type) response with status 0, so foxplug refuses it. |
-| `ReadableStream` reader | [ReadableStream](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream) | Stops reading at the size cap. |
-| `crypto.subtle.sign` with HMAC | [SubtleCrypto.sign()](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign) | The HMAC SHA-256 args hash for foxtrail. |
+- Live vendor compatibility is pending. Local tests use an HTTP fixture server.
+- No automatic request retries or pagination traversal are implemented.
+- The default response cap is 256 KiB; oversized bodies return `too-large`.
+- Results default to 8,000 characters before the untrusted-data wrapper.
+- Node.js follows at most three same-host, same-protocol redirects for GET requests.
+- Browser redirects return a refusal because the browser hides their destination.
+- Default rate limits are 30 calls per action per minute and ten denied or asked calls per action per minute.
+- The planner permits eight calls per turn by default. Your loop must call `newTurn()` to reset it.
+- Keys work in headers; query-string API keys are unsupported.
+- OAuth with Proof Key for Code Exchange (PKCE) needs a caller-supplied foxlink-compatible link.
+- The package has no inbound webhook listener, remote MCP client, signed catalog, or device-flow implementation.
+- A supplied audit trail must accept the initial call entry before approval or network work proceeds.
+- Without `argsKey`, a restarted runner generates a new hash key. Supply a stable key for comparable audit hashes.
+- Scanning and untrusted-data fences do not guarantee that a planner ignores hostile response content.
+- Firefox can unload background event pages; your application owns task persistence.
 
-The runner uses no Node-only global such as `Buffer`. A test runs it with
-`Buffer` removed.
+## Integration guides
 
-In an extension, ask for host permissions per integration at connect time,
-for example `https://api.github.com/*`. Do not ask for `<all_urls>`.
+- [GitHub approval walkthrough](#request-your-first-approval) shows vault setup, grants, and approval redemption.
+- [Catalog coverage](#coverage) lists each vendor's available actions and verification level.
+- [Custom manifest and runner API](#runtime-surfaces) describes schema validation and caller-supplied links.
 
-## Limits
+In Firefox, request host access for each connected vendor, such as `https://api.github.com/*`.
+The runner uses Fetch, readable streams, and Web Crypto rather than Node-only `Buffer` calls.
 
-Some services cannot work privately without a server:
+## Status
 
-- **Webhooks and inbound events.** A device has no public URL, so foxplug
-  only polls, and only while the browser runs. A user can run their own relay.
-- **Providers that need an approved app with a secret**, such as Meta (Facebook
-  and Instagram), LinkedIn member APIs, and TikTok. Use the user's own app if
-  the provider allows one, or leave the service out.
-- **Providers with a web-only redirect rule** that refuses the Firefox loopback
-  redirect.
-- **Google restricted scopes** (full Gmail, Drive). Use foxlink with the user's
-  own client ID.
-- **Long background work.** Firefox unloads event pages.
+Version 0.1.1 is an early release. Manifest and runner APIs can change during the 0.x series.
+Report problems through [GitHub issues](https://github.com/pooriaarab/foxplug/issues).
+Public case studies are not yet published in this repository.
 
-This first version also has these limits:
+## FAQ
 
-- The gold manifests pass tests against a local server. They have not yet run
-  against the live APIs. Check each one with a real key before you rely on it.
-- Keys go in a header only. An API that wants its key in the query string,
-  such as OpenWeather, does not work.
-- There is no signed catalog, no remote MCP client, and no device flow yet.
-- foxplug has no score yet on the foxmate benchmark for integration tasks.
-- `oauth-pkce` needs a link from foxlink that your code makes.
-- In a string that foxshield marks, line breaks become spaces.
-- In a browser, foxplug follows no redirect. An API that answers with a
-  redirect gets the reason `redirect`.
-- With no `argsKey`, each runner makes a new HMAC key, so the same args give
-  another hash after a restart.
+### What is foxplug?
 
-## Part of the fox primitives
+foxplug is an API integration library for local agent applications.
+Install it under the npm name `foxplug-agent`.
 
-```mermaid
-flowchart LR
-  foxkit[foxkit] -- template --> foxplug[foxplug]
-  foxgate[foxgate] --> foxplug
-  foxvault[foxvault] --> foxplug
-  foxshield[foxshield] --> foxplug
-  foxtrail[foxtrail] --> foxplug
-  foxlink[foxlink] -. oauth-pkce links .-> foxplug
-  foxplug --> foxmate[foxmate]
-  click foxkit "https://github.com/pooriaarab/foxkit"
-  click foxgate "https://github.com/pooriaarab/foxgate"
-  click foxvault "https://github.com/pooriaarab/foxvault"
-  click foxshield "https://github.com/pooriaarab/foxshield"
-  click foxtrail "https://github.com/pooriaarab/foxtrail"
-  click foxlink "https://github.com/pooriaarab/foxlink"
-  click foxmate "https://github.com/pooriaarab/foxmate"
-```
+### Which integrations are verified?
 
-foxplug depends on foxgate, foxvault, foxshield, and foxtrail from npm. It
-takes foxlink links through an option, so it does not depend on foxlink.
+foxplug includes eight implemented manifests tested against a local server.
+Live credential verification remains pending for all eight integrations.
+
+### Does foxplug provide a managed integration service?
+
+foxplug runs inside your application or Firefox extension.
+You supply credentials, approval UI, and task persistence.
+
+### How is foxplug different from Composio?
+
+foxplug sends manifest-defined requests from your runtime and uses your vault and gate.
+[Composio](https://docs.composio.dev/docs/authentication) provides connected-account authentication and managed or custom auth configurations.
+
+### How is foxplug different from n8n?
+
+foxplug is a library for action discovery, request execution, and approval checks.
+[n8n](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent/) connects agent tool nodes inside workflows.
+
+### What tools does the planner see?
+
+foxplug exposes `plug_search`, `plug_describe`, and `plug_call`.
+The planner discovers action IDs, fetches schemas, and submits checked arguments.
+
+### Where do API keys go?
+
+foxplug stores pasted keys through foxvault and applies a host-pinned header rule.
+Applications should collect keys through their own UI rather than chat messages.
+
+### Can foxplug create Stripe payments?
+
+foxplug's Stripe manifest has three read actions.
+It has no payment-creation action.
+
+### Can I add my own API?
+
+foxplug accepts custom manifests through `parseManifest`.
+Custom read actions must use GET; the catalog's three approved POST reads are an internal exception.
 
 ## License
 
-[MIT](LICENSE)
+MIT. See the [MIT license text](https://opensource.org/license/mit).
