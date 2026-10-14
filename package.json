@@ -1,6 +1,6 @@
 {
   "name": "foxplug-agent",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local AI agent API integrations for GitHub, Notion, Slack, Linear, and Stripe with JSON manifests, approval checks, and vault keys.",
   "type": "module",
   "license": "MIT",
